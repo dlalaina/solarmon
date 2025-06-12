@@ -124,9 +124,9 @@ Para configurar e rodar o SolarMon em seu ambiente local:
       },
       "mysql": {
         "host": "localhost",
-        "user": "python",
-        "password": "pSdk24Kd!",
-        "database": "growatt"
+        "user": "ser_usuario_mysql",
+        "password": "sua_senha_mysql",
+        "database": "solarmon"
       }
     }
     ```
