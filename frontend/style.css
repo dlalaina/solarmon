@@ -1,0 +1,244 @@
+body {
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; /* Fonte mais moderna */
+    margin: 0;
+    padding: 20px;
+    background-color: #121212; /* Fundo bem escuro, quase preto */
+    color: #e0e0e0; /* Cor de texto clara */
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 20px auto;
+    background-color: #1e1e1e; /* Um pouco mais claro que o fundo do body */
+    padding: 30px;
+    border-radius: 12px; /* Mais arredondado */
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5); /* Sombra mais pronunciada para destaque */
+}
+
+h1, h2 {
+    text-align: center;
+    color: #61dafb; /* Um azul mais vibrante para destaque em temas escuros */
+    margin-bottom: 25px;
+    font-weight: 600; /* Um pouco mais encorpado */
+}
+
+/* --- Estilos para a nova seção de resumo --- */
+.summary-section {
+    margin-bottom: 40px; /* Espaçamento entre a tabela de resumo e os botões de filtro */
+    padding: 20px;
+    background-color: #252525; /* Fundo ligeiramente diferente para a seção */
+    border-radius: 10px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+}
+
+.summary-section table {
+    margin-top: 15px; /* Espaço entre o título implícito e a tabela */
+}
+
+/* Estilos para as bolinhas de status */
+.status-circle {
+    display: inline-block;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%; /* Faz a bolinha ser um círculo */
+    margin-right: 8px; /* Espaço entre a bolinha e o texto */
+    vertical-align: middle; /* Alinha verticalmente com o texto */
+    border: 1px solid rgba(255, 255, 255, 0.2); /* Borda sutil */
+}
+
+.status-green {
+    background-color: #28a745; /* Verde */
+}
+
+.status-yellow {
+    background-color: #ffc107; /* Amarelo */
+}
+
+.status-gray {
+    background-color: #6c757d; /* Cinza */
+}
+
+.status-red {
+    background-color: #dc3545; /* Vermelho */
+}
+/* --- Fim dos estilos da seção de resumo --- */
+
+
+.filter-buttons {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.filter-buttons button {
+    background-color: #333; /* Fundo dos botões em tom escuro */
+    color: #e0e0e0;
+    border: 1px solid #444; /* Borda sutil */
+    padding: 12px 25px; /* Um pouco mais de padding */
+    margin: 0 8px;
+    border-radius: 8px; /* Mais arredondado */
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.2s ease;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); /* Sombra para os botões */
+}
+
+.filter-buttons button:hover {
+    background-color: #444;
+    border-color: #61dafb; /* Borda colorida no hover */
+    transform: translateY(-2px); /* Pequeno efeito de elevação */
+}
+
+.filter-buttons button.active {
+    background-color: #61dafb; /* Cor de destaque para o botão ativo */
+    color: #121212; /* Texto escuro no botão ativo */
+    border-color: #61dafb;
+    box-shadow: 0 3px 8px rgba(97, 218, 251, 0.4); /* Sombra colorida para o botão ativo */
+    cursor: default;
+    transform: translateY(0);
+}
+
+.alarm-section {
+    margin-top: 30px;
+}
+
+table {
+    width: 100%;
+    border-collapse: separate; /* Permite border-radius nas células */
+    border-spacing: 0; /* Remove espaço entre as células */
+    margin-top: 20px;
+    border-radius: 10px; /* Arredonda os cantos da tabela inteira */
+    overflow: hidden; /* Garante que os cantos arredondados sejam respeitados */
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Sombra para a tabela */
+}
+
+table thead {
+    background-color: #2a2a2a; /* Fundo do cabeçalho da tabela */
+    color: #f0f0f0;
+}
+
+table th, table td {
+    padding: 15px 20px; /* Mais padding para melhor espaçamento */
+    text-align: left;
+    border-bottom: 1px solid #333; /* Linhas de grade mais escuras */
+}
+
+table th:first-child { border-top-left-radius: 10px; } /* Arredonda o canto superior esquerdo do cabeçalho */
+table th:last-child { border-top-right-radius: 10px; } /* Arredonda o canto superior direito do cabeçalho */
+/* Como a nova tabela tem o thead fixo, talvez você queira aplicar isso a #alarmsTable thead th:first-child, etc. */
+/* Para a nova tabela, vamos manter simples ou aplicar os mesmos estilos */
+
+
+table tbody tr {
+    background-color: #1e1e1e; /* Fundo das linhas do corpo */
+    transition: background-color 0.2s ease;
+}
+
+table tbody tr:nth-child(even) {
+    background-color: #222; /* Linhas pares ligeiramente diferentes */
+}
+
+table tbody tr:hover {
+    background-color: #2a2a2a; /* Cor no hover para destaque */
+}
+
+.loading, .no-alarms {
+    text-align: center;
+    font-style: italic;
+    color: #999;
+    margin-top: 25px;
+    padding: 10px;
+    background-color: #2a2a2a;
+    border-radius: 8px;
+}
+
+.hidden {
+    display: none;
+}
+
+/* --- ESTILOS ADICIONADOS PARA A COLUNA DE OBSERVAÇÃO --- */
+.observation-cell {
+    position: relative;
+    cursor: pointer;
+    min-width: 200px; /* Aumentado para acomodar texto e controles */
+    vertical-align: top; /* Alinha o conteúdo ao topo em células multi-linha */
+    padding: 12px 15px; /* Ajuste o padding para harmonizar com a tabela */
+    box-sizing: border-box; /* Garante que padding não adicione largura extra */
+}
+
+.observation-textarea {
+    width: calc(100% - 10px); /* Ajustado para deixar espaço para padding */
+    min-height: 80px; /* Altura mínima para edição */
+    box-sizing: border-box;
+    resize: vertical; /* Permite redimensionar verticalmente */
+    padding: 8px;
+    margin-bottom: 8px;
+    border: 1px solid #61dafb; /* Borda da cor de destaque */
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.95em; /* Ligeiramente menor que o texto normal da tabela */
+    background-color: #2a2a2a; /* Fundo escuro para o textarea */
+    color: #e0e0e0; /* Texto claro */
+}
+
+.observation-cell button {
+    margin-right: 8px; /* Mais espaço entre os botões */
+    padding: 8px 15px;
+    border: none;
+    border-radius: 6px; /* Mais arredondado */
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+.observation-cell .save-observation-btn {
+    background-color: #28a745; /* Verde para salvar */
+    color: white;
+}
+
+.observation-cell .save-observation-btn:hover {
+    background-color: #218838;
+    transform: translateY(-1px);
+}
+
+.observation-cell .cancel-observation-btn {
+    background-color: #dc3545; /* Vermelho para cancelar */
+    color: white;
+}
+
+.observation-cell .cancel-observation-btn:hover {
+    background-color: #c82333;
+    transform: translateY(-1px);
+}
+
+.no-observation-placeholder {
+    font-style: italic;
+    color: #888;
+    display: block; /* Garante que o placeholder ocupe a linha inteira */
+    padding: 5px 0; /* Pequeno padding para o placeholder */
+}
+
+/* --- ESTILOS EXISTENTES PARA O BOTÃO DE LIMPAR ALARME (REVISADO PARA CONTEXTO DARK) --- */
+.clear-alarm-button {
+    background-color: #e74c3c; /* Vermelho vibrante */
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.3s ease;
+}
+
+.clear-alarm-button:hover {
+    background-color: #c0392b; /* Vermelho mais escuro no hover */
+}
+
+.clear-alarm-button:disabled {
+    background-color: #7f8c8d; /* Cinza para botão desabilitado */
+    cursor: not-allowed;
+}
+
+.loading-button {
+    background-color: #f39c12; /* Laranja para estado de carregamento */
+}

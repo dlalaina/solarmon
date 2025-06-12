@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard</h1>
+
+        <div class="summary-section">
+            <div id="loadingSummary" class="loading hidden">Carregando resumo dos inversores...</div>
+            <table id="plantsSummaryTable">
+                <thead>
+                    <tr>
+                        <th>Nome da Planta</th>
+                        <th>Inversor</th>
+                        <th>Status</th>
+                        <th>Geração do Dia (kWh)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    </tbody>
+            </table>
+            <div id="noPlantsSummary" class="no-alarms hidden">Nenhum inversor encontrado para o resumo.</div>
+        </div>
+        <div class="filter-buttons">
+            <button id="showActiveAlarms" class="active">Alarmes Ativos</button>
+            <button id="showHistoryAlarms">Histórico de Alarmes</button>
+        </div>
+
+        <div class="alarm-section">
+            <h2 id="sectionTitle">Alarmes Ativos</h2>
+            <div id="loading" class="loading">Carregando alarmes...</div>
+            <table id="alarmsTable">
+                <thead>
+                    <tr></tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+            <div id="noAlarms" class="no-alarms hidden">Nenhum alarme encontrado.</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
