@@ -61,28 +61,27 @@ O SolarMon é construído sobre uma base robusta e flexível:
     * **`diagnosticLogger.js`:** Sistema de log centralizado para monitoramento e depuração da aplicação.
 
 ## Estrutura do Projeto
-
-    ```bash
-	solarmon/
-	├── frontend/                     # Contém os arquivos do frontend acessíveis pelo navegador
-	│   ├── index.html                # Dashboard principal da interface do usuário
-	│   ├── app.js                    # Lógica JavaScript do frontend (interações do dashboard, requisições AJAX)
-	│   └── style.css                 # Estilos CSS da aplicação (inclui o tema escuro)
-	├── alarmManager.js               # Módulo para gerenciamento da lógica de alarmes (ativação, desativação, estado)
-	├── app.js                        # Script principal para tarefas agendadas (CRON jobs), processamento em background
-	├── database.js                   # Módulo de interface com o banco de dados (abstração para operações de persistência)
-	├── diagnosticLogger.js           # Ferramenta para logs e diagnósticos internos do sistema
-	├── emailProcessor.js             # Módulo para lidar com o envio de e-mails de notificação
-	├── growattApi.js                 # Módulo de abstração para interagir especificamente com a API da Growatt
-	├── processGrowattEmailAlarms.js  # Lógica para processar alarmes recebidos via e-mail da Growatt
-	├── server.js                     # Configuração e inicialização do servidor web (responsável por servir o frontend e expor APIs)
-	├── telegramNotifier.js           # Módulo para enviar notificações via Telegram
-	├── utils.js                      # Funções utilitárias diversas usadas em todo o projeto (ex: formatação de datas, escape HTML)
-	├── credentials.json              # Arquivo de credenciais sensíveis e configurações (IGNORADO pelo .gitignore)
-	├── logs/                         # Diretório para arquivos de log gerados pela aplicação (IGNORADO pelo .gitignore)
-	├── .gitignore                    # Regras para ignorar arquivos e diretórios no controle de versão Git
-	└── LICENSE                       # Informações sobre a licença do projeto
-    ```
+```bash
+solarmon/
+├── frontend/                     # Contém os arquivos do frontend acessíveis pelo navegador
+│   ├── index.html                # Dashboard principal da interface do usuário
+│   ├── app.js                    # Lógica JavaScript do frontend (interações do dashboard, requisições AJAX)
+│   └── style.css                 # Estilos CSS da aplicação (inclui o tema escuro)
+├── alarmManager.js               # Módulo para gerenciamento da lógica de alarmes (ativação, desativação, estado)
+├── app.js                        # Script principal para tarefas agendadas (CRON jobs), processamento em background
+├── database.js                   # Módulo de interface com o banco de dados (abstração para operações de persistência)
+├── diagnosticLogger.js           # Ferramenta para logs e diagnósticos internos do sistema
+├── emailProcessor.js             # Módulo para lidar com o envio de e-mails de notificação
+├── growattApi.js                 # Módulo de abstração para interagir especificamente com a API da Growatt
+├── processGrowattEmailAlarms.js  # Lógica para processar alarmes recebidos via e-mail da Growatt
+├── server.js                     # Configuração e inicialização do servidor web (responsável por servir o frontend e expor APIs)
+├── telegramNotifier.js           # Módulo para enviar notificações via Telegram
+├── utils.js                      # Funções utilitárias diversas usadas em todo o projeto (ex: formatação de datas, escape HTML)
+├── credentials.json              # Arquivo de credenciais sensíveis e configurações (IGNORADO pelo .gitignore)
+├── logs/                         # Diretório para arquivos de log gerados pela aplicação (IGNORADO pelo .gitignore)
+├── .gitignore                    # Regras para ignorar arquivos e diretórios no controle de versão Git
+└── LICENSE                       # Informações sobre a licença do projeto
+```
 
 ## Primeiros Passos
 
@@ -129,6 +128,7 @@ Para configurar e rodar o SolarMon em seu ambiente local:
         "password": "pSdk24Kd!",
         "database": "growatt"
       }
+    }
     ```
     **Lembre-se: `credentials.json` está listado no `.gitignore` e não deve ser commitado no repositório público.**
 
