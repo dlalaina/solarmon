@@ -64,38 +64,30 @@ h1, h2 {
 }
 /* --- Fim dos estilos da seção de resumo --- */
 
-
 .filter-buttons {
-    text-align: center;
-    margin-bottom: 30px;
+    display: flex; /* Para desktop, mantenha flexbox para linha */
+    justify-content: center; /* Centraliza horizontalmente no desktop */
+    gap: 15px; /* Espaço entre botões no desktop */
+    margin-bottom: 20px;
 }
 
 .filter-buttons button {
-    background-color: #333; /* Fundo dos botões em tom escuro */
-    color: #e0e0e0;
-    border: 1px solid #444; /* Borda sutil */
-    padding: 12px 25px; /* Um pouco mais de padding */
-    margin: 0 8px;
-    border-radius: 8px; /* Mais arredondado */
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
     cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.2s ease;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); /* Sombra para os botões */
+    font-size: 1em;
+    transition: background-color 0.3s ease;
 }
 
 .filter-buttons button:hover {
-    background-color: #444;
-    border-color: #61dafb; /* Borda colorida no hover */
-    transform: translateY(-2px); /* Pequeno efeito de elevação */
+    background-color: #0056b3;
 }
 
 .filter-buttons button.active {
-    background-color: #61dafb; /* Cor de destaque para o botão ativo */
-    color: #121212; /* Texto escuro no botão ativo */
-    border-color: #61dafb;
-    box-shadow: 0 3px 8px rgba(97, 218, 251, 0.4); /* Sombra colorida para o botão ativo */
-    cursor: default;
-    transform: translateY(0);
+    background-color: #28a745;
 }
 
 .alarm-section {
@@ -241,4 +233,65 @@ table tbody tr:hover {
 
 .loading-button {
     background-color: #f39c12; /* Laranja para estado de carregamento */
+}
+
+/* --- Media Query para telas menores que 768px (celulares/tablets) --- */
+@media (max-width: 768px) {
+    /* Ajuste do contêiner dos botões */
+    .filter-buttons {
+        /* Remove justify-content: center; para quando estiverem em coluna */
+        flex-direction: column; /* Faz os botões ficarem um abaixo do outro */
+        align-items: center; /* Centraliza os itens horizontalmente na coluna */
+        gap: 10px; /* Ajusta o espaço entre eles quando empilhados */
+        /* Garante que o contêiner .filter-buttons ocupe toda a largura disponível */
+        width: 100%;
+        /* Pode ser útil verificar se há padding no contêiner pai que os está empurrando */
+        /* Por exemplo, se .container tem padding, os 100% dos botões respeitarão isso */
+    }
+
+    /* Regras para os botões individuais DENTRO da media query */
+    .filter-buttons button {
+        width: 90%; /* Ajusta a largura dos botões para 90% */
+        max-width: 300px; /* Impede que fiquem muito largos em tablets */
+        display: block; /* Garante que eles ocupem a linha inteira, como já tinha */
+        margin: 0 auto; /* Isso é crucial para centralizar um elemento de bloco */
+        margin-bottom: 0; /* Remove o margin-bottom anterior para não duplicar com o gap */
+    }
+
+    .container {
+        padding: 10px; /* Mantém o padding reduzido para o contêiner geral */
+    }
+}
+
+/* Estilos para tabelas responsivas */
+@media (max-width: 768px) {
+    /* Para tabelas dentro de .summary-section e .alarm-section */
+    .summary-section table,
+    .alarm-section table {
+        display: block; /* Faz a tabela se comportar como um bloco, essencial para overflow */
+        overflow-x: auto; /* Adiciona uma barra de rolagem horizontal se o conteúdo for maior que a tela */
+        -webkit-overflow-scrolling: touch; /* Melhora a rolagem em dispositivos iOS */
+        width: 100%; /* Garante que o contêiner da tabela ocupe 100% da largura disponível */
+        white-space: nowrap; /* Impede que o conteúdo das células da tabela quebre em várias linhas, forçando a rolagem */
+    }
+
+    /* Opcional: Ajustar largura mínima de colunas ou tamanho da fonte para que caiba mais conteúdo */
+    .summary-section th, .summary-section td,
+    .alarm-section th, .alarm-section td {
+        font-size: 0.85em; /* Reduz ligeiramente o tamanho da fonte para caber mais */
+        padding: 8px 10px; /* Ajusta o padding */
+    }
+}
+
+/* Outros ajustes gerais para telas pequenas, se necessário */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px; /* Reduz o padding geral do contêiner em telas pequenas */
+    }
+    /* Botões de filtro (showActiveAlarms, showHistoryAlarms) */
+    .filter-buttons button {
+        width: 100%; /* Faz com que cada botão ocupe 100% da largura */
+        margin-bottom: 10px; /* Adiciona um pequeno espaço entre eles */
+        display: block; /* Garante que fiquem um abaixo do outro */
+    }
 }
