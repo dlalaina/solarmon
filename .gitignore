@@ -83,6 +83,9 @@ Desktop.ini
 # Arquivo de credenciais (CRÍTICO: nunca versionar senhas e chaves!)
 credentials.json
 
+# cache token Solarman
+solarman_token_cache.json
+
 # Logs específicos do projeto
 /logs/
 *.log

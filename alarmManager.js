@@ -29,67 +29,87 @@ async function checkAndManageAlarms(pool) {
 
         // --- Alarm Detection Queries ---
 
-        // --- 2a. IPV Alarms: STRING_DOWN and HALF_STRING_WORKING ---
+        // --- 2a. Current String Alarms: STRING_DOWN and HALF_STRING_WORKING ---
         const [dayIpvAlarms] = await connection.execute(`
             SELECT
                 sd.plant_name,
                 sd.inverter_id,
-                CAST(sd.ipv1 AS DECIMAL(10,2)) AS ipv1,
-                CAST(sd.ipv2 AS DECIMAL(10,2)) AS ipv2,
-                CAST(sd.ipv3 AS DECIMAL(10,2)) AS ipv3,
-                CAST(sd.ipv4 AS DECIMAL(10,2)) AS ipv4,
-                CAST(sd.ipv5 AS DECIMAL(10,2)) AS ipv5,
-                CAST(sd.ipv6 AS DECIMAL(10,2)) AS ipv6,
-                CAST(sd.ipv7 AS DECIMAL(10,2)) AS ipv7,
-                CAST(sd.ipv8 AS DECIMAL(10,2)) AS ipv8,
+                CAST(sd.currentString1 AS DECIMAL(10,2)) AS currentString1,
+                CAST(sd.currentString2 AS DECIMAL(10,2)) AS currentString2,
+                CAST(sd.currentString3 AS DECIMAL(10,2)) AS currentString3,
+                CAST(sd.currentString4 AS DECIMAL(10,2)) AS currentString4,
+                CAST(sd.currentString5 AS DECIMAL(10,2)) AS currentString5,
+                CAST(sd.currentString6 AS DECIMAL(10,2)) AS currentString6,
+                CAST(sd.currentString7 AS DECIMAL(10,2)) AS currentString7,
+                CAST(sd.currentString8 AS DECIMAL(10,2)) AS currentString8,
+                CAST(sd.currentString9 AS DECIMAL(10,2)) AS currentString9,
+                CAST(sd.currentString10 AS DECIMAL(10,2)) AS currentString10,
+                CAST(sd.currentString11 AS DECIMAL(10,2)) AS currentString11,
+                CAST(sd.currentString12 AS DECIMAL(10,2)) AS currentString12,
+                CAST(sd.currentString13 AS DECIMAL(10,2)) AS currentString13,
+                CAST(sd.currentString14 AS DECIMAL(10,2)) AS currentString14,
+                CAST(sd.currentString15 AS DECIMAL(10,2)) AS currentString15,
+                CAST(sd.currentString16 AS DECIMAL(10,2)) AS currentString16,
                 CAST(GREATEST(
-                    COALESCE(sd.ipv1, 0),
-                    COALESCE(sd.ipv2, 0),
-                    COALESCE(sd.ipv3, 0),
-                    COALESCE(sd.ipv4, 0),
-                    COALESCE(sd.ipv5, 0),
-                    COALESCE(sd.ipv6, 0),
-                    COALESCE(sd.ipv7, 0),
-                    COALESCE(sd.ipv8, 0)
-                ) AS DECIMAL(10,2)) AS greatest_ipv_in_group,
-                pc.num_strings,
-                pc.string_grouping_type
+                    COALESCE(sd.currentString1, 0),
+                    COALESCE(sd.currentString2, 0),
+                    COALESCE(sd.currentString3, 0),
+                    COALESCE(sd.currentString4, 0),
+                    COALESCE(sd.currentString5, 0),
+                    COALESCE(sd.currentString6, 0),
+                    COALESCE(sd.currentString7, 0),
+                    COALESCE(sd.currentString8, 0),
+                    COALESCE(sd.currentString9, 0),
+                    COALESCE(sd.currentString10, 0),
+                    COALESCE(sd.currentString11, 0),
+                    COALESCE(sd.currentString12, 0),
+                    COALESCE(sd.currentString13, 0),
+                    COALESCE(sd.currentString14, 0),
+                    COALESCE(sd.currentString15, 0),
+                    COALESCE(sd.currentString16, 0)
+                ) AS DECIMAL(10,2)) AS greatest_current_string,
+                pc.num_strings, -- Manter por enquanto, será removido depois
+                pc.string_grouping_type,
+                pc.active_strings_config -- ADICIONADO: Obter a configuração de strings ativas
             FROM solar_data sd
             JOIN plant_config pc ON sd.plant_name = pc.plant_name AND sd.inverter_id = pc.inverter_id
             WHERE
                 sd.last_update_time >= CURDATE()
                 AND sd.status <> -1
                 AND (
-                    COALESCE(sd.ipv1, 0) <= 0.5 OR COALESCE(sd.ipv2, 0) <= 0.5 OR COALESCE(sd.ipv3, 0) <= 0.5 OR COALESCE(sd.ipv4, 0) <= 0.5 OR
-                    COALESCE(sd.ipv5, 0) <= 0.5 OR COALESCE(sd.ipv6, 0) <= 0.5 OR COALESCE(sd.ipv7, 0) <= 0.5 OR COALESCE(sd.ipv8, 0) <= 0.5
-                    OR GREATEST(
-                        COALESCE(sd.ipv1, 0), COALESCE(sd.ipv2, 0), COALESCE(sd.ipv3, 0), COALESCE(sd.ipv4, 0),
-                        COALESCE(sd.ipv5, 0), COALESCE(sd.ipv6, 0), COALESCE(sd.ipv7, 0), COALESCE(sd.ipv8, 0)
-                    ) >= 13.0
-                )
+                    COALESCE(sd.currentString1, 0) <= 0.5 OR COALESCE(sd.currentString2, 0) <= 0.5 OR COALESCE(sd.currentString3, 0) <= 0.5 OR COALESCE(sd.currentString4, 0) <= 0.5 OR
+                    COALESCE(sd.currentString5, 0) <= 0.5 OR COALESCE(sd.currentString6, 0) <= 0.5 OR COALESCE(sd.currentString7, 0) <= 0.5 OR COALESCE(sd.currentString8, 0) <= 0.5 OR
+                    COALESCE(sd.currentString9, 0) <= 0.5 OR COALESCE(sd.currentString10, 0) <= 0.5 OR COALESCE(sd.currentString11, 0) <= 0.5 OR COALESCE(sd.currentString12, 0) <= 0.5 OR
+                    COALESCE(sd.currentString13, 0) <= 0.5 OR COALESCE(sd.currentString14, 0) <= 0.5 OR COALESCE(sd.currentString15, 0) <= 0.5 OR COALESCE(sd.currentString16, 0) <= 0.5
+                ) OR GREATEST(
+                    COALESCE(sd.currentString1, 0), COALESCE(sd.currentString2, 0), COALESCE(sd.currentString3, 0), COALESCE(sd.currentString4, 0),
+                    COALESCE(sd.currentString5, 0), COALESCE(sd.currentString6, 0), COALESCE(sd.currentString7, 0), COALESCE(sd.currentString8, 0),
+                    COALESCE(sd.currentString9, 0), COALESCE(sd.currentString10, 0), COALESCE(sd.currentString11, 0), COALESCE(sd.currentString12, 0),
+                    COALESCE(sd.currentString13, 0), COALESCE(sd.currentString14, 0), COALESCE(sd.currentString15, 0), COALESCE(sd.currentString16, 0)
+                ) >= 13.0
             ORDER BY sd.last_update_time DESC
             LIMIT 100
         `);
 
         // --- Bloco de preparação dos dados ---
         dayIpvAlarms.forEach(detection => {
-            for (let i = 1; i <= detection.num_strings; i++) {
-                const ipvKey = `ipv${i}`;
-                detection[ipvKey] = parseFloat(detection[ipvKey] || 0);
+            for (let i = 1; i <= 16; i++) { // Iterar por todas as 16 strings possíveis para garantir que todas sejam parseadas
+                const currentStringKey = `currentString${i}`;
+                detection[currentStringKey] = parseFloat(detection[currentStringKey] || 0);
             }
-            detection.greatest_ipv_in_group = parseFloat(detection.greatest_ipv_in_group || 0);
+            detection.greatest_current_string = parseFloat(detection.greatest_current_string || 0);
         });
-        // --- Fim do bloco de preparação dos dados ---
+        // --- Fim do bloco de preparação dos dados --- 
 
         // NOVO: Buscar contagens consecutivas existentes para HALF_STRING_WORKING e STRING_DOWN
         const [consecutiveCountsRows] = await connection.execute(
-            `SELECT plant_name, inverter_id, alarm_type, consecutive_count
+            `SELECT plant_name, inverter_id, alarm_type, consecutive_count, problem_details
              FROM consecutive_alarm_counts
-             WHERE alarm_type IN ('HALF_STRING_WORKING', 'STRING_DOWN')` // <-- MUDANÇA AQUI
+             WHERE alarm_type IN ('HALF_STRING_WORKING', 'STRING_DOWN')`
         );
         const consecutiveCountsMap = new Map();
         consecutiveCountsRows.forEach(row => {
-            const key = `${row.plant_name}_${row.inverter_id}_${row.alarm_type}`; // <-- MUDANÇA AQUI: Adiciona alarm_type à chave
+            const key = `${row.plant_name}_${row.inverter_id}_${row.alarm_type}_${row.problem_details || ''}`;
             consecutiveCountsMap.set(key, row.consecutive_count);
         });
 
@@ -97,61 +117,113 @@ async function checkAndManageAlarms(pool) {
         for (const detection of dayIpvAlarms) {
             const plantName = detection.plant_name;
             const inverterId = detection.inverter_id;
-            const numStrings = detection.num_strings;
-            const greatestIpv = detection.greatest_ipv_in_group;
+            // const numStrings = detection.num_strings; // Será removido futuramente
+            const greatestCurrentString = detection.greatest_current_string;
+            const stringGroupingType = detection.string_grouping_type; // Ainda é usado
+
+            // Obter e validar activeStringsConfig
+            let activeStrings = [];
+            // O driver do MySQL já deve retornar a coluna JSON como um array JS
+            if (Array.isArray(detection.active_strings_config)) {
+                activeStrings = detection.active_strings_config;
+            } else if (detection.active_strings_config === null || detection.active_strings_config === undefined) {
+                console.warn(`[${getFormattedTimestamp()}] active_strings_config é NULO/UNDEFINED para Planta: ${plantName}, Inversor: ${inverterId}. Usando array vazio.`);
+                // Dependendo do seu caso, você pode querer um comportamento padrão aqui
+                // como activeStrings = Array.from({length: detection.num_strings}, (_, i) => i + 1); 
+                // Mas isso dependeria de num_strings, que você quer remover.
+                // Se a config for crucial, o ideal é que ela SEMPRE seja um array válido.
+                activeStrings = []; // Se não houver config, não processa strings específicas.
+            } else {
+                // Caso seja uma string por algum motivo, tente parsear (menos provável com JSON type)
+                try {
+                    activeStrings = JSON.parse(detection.active_strings_config);
+                    if (!Array.isArray(activeStrings)) {
+                        console.warn(`[${getFormattedTimestamp()}] active_strings_config inválido (não é array após parse) para Planta: ${plantName}, Inversor: ${inverterId}. Usando array vazio.`);
+                        activeStrings = [];
+                    }
+                } catch (parseError) {
+                    console.error(`[${getFormattedTimestamp()}] Erro ao parsear active_strings_config (esperado array ou string JSON) para Planta: ${plantName}, Inversor: ${inverterId}. Erro: ${parseError.message}. Usando array vazio.`);
+                    activeStrings = [];
+                }
+            }
+            
+            // Se activeStrings ainda não for um array válido aqui, pule o inversor
+            if (!Array.isArray(activeStrings) || activeStrings.length === 0) {
+                console.warn(`[${getFormattedTimestamp()}] Pulando inversor ${inverterId} da planta ${plantName} devido a active_strings_config inválido ou vazio.`);
+                continue; // Pular este inversor se a configuração de strings estiver inválida/ausente ou vazia.
+            }
 
             // --- STRING_DOWN Detection ---
-            for (let i = 1; i <= numStrings; i++) {
-                const ipvKey = `ipv${i}`;
-                const problemDetails = `String ${i} (Fora)`;
+            for (const stringNum of activeStrings) { // Iterar sobre os NÚMEROS das strings ativas
+                const currentStringKey = `currentString${stringNum}`;
+                const problemDetails = `String ${stringNum} (Fora)`;
                 const alarmType = 'STRING_DOWN';
                 const alarmSeverity = 'High';
 
-                // NOVO: Lógica de contagem consecutiva para STRING_DOWN
-                const consecutiveKey_SD = `${plantName}_${inverterId}_${alarmType}_${problemDetails}`; // Chave para a contagem consecutiva de STRING_DOWN
+		const consecutiveKey_SD = `${plantName}_${inverterId}_${alarmType}_${problemDetails}`; // Chave para a contagem consecutiva de STRING_DOWN
                 let consecutiveCount_SD = consecutiveCountsMap.get(consecutiveKey_SD) || 0;
 
-                if (detection[ipvKey] <= 0.5 && greatestIpv > 8.0) {
-                    consecutiveCount_SD++; // Incrementa a contagem se a condição for metida
-                    consecutiveCountsMap.set(consecutiveKey_SD, consecutiveCount_SD); // Atualiza no mapa
+                // Certifique-se de que detection[currentStringKey] existe e é um número. Usamos `|| 0` para fallback.
+                // Mas é crucial que a query MySQL retorne essas colunas. Se `stringNum` for maior que o máximo selecionado,\
+                // detection[currentStringKey] será `undefined`.\
+                const stringCurrentValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null; 
 
-                    if (consecutiveCount_SD >= 2) { // Só dispara o alarme se a contagem for >= 2
+                if (stringCurrentValue === null) {
+                    // Se a string não foi selecionada pela query (ex: stringNum > 16) ou não tem dados,\
+                    // não podemos avaliá-la. Isso é um aviso, não um erro de parsing.\
+                    // Se o seu `active_strings_config` pode ter números de string que não são capturados pela query,\
+                    // então este aviso é esperado. Caso contrário, revise a query ou a config.\
+                    console.warn(`[${getFormattedTimestamp()}] Dados de currentString${stringNum} não encontrados para Inversor: ${inverterId} na Planta: ${plantName}, apesar de estar em active_strings_config. Pulando esta string.`);
+                    continue; 
+                }
+
+                if (stringCurrentValue <= 0.5 && greatestCurrentString > 8.0) {
+                    consecutiveCount_SD++;
+                    consecutiveCountsMap.set(consecutiveKey_SD, consecutiveCount_SD);
+
+                    if (consecutiveCount_SD >= 2) {
                         const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetails}`;
                         if (!activeAlarmsMap.has(alarmKey)) {
-                            const message = `String ${i} do inversor ${inverterId} da planta ${plantName} está com produção próxima de zero (${(detection[ipvKey] || 0).toFixed(2)}A) enquanto outras strings estão ativas (pico: ${greatestIpv.toFixed(2)}A).`;
+                            const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção próxima de zero (${stringCurrentValue.toFixed(2)}A) enquanto outras strings estão ativas (pico: ${greatestCurrentString.toFixed(2)}A).`;
                             await connection.execute(
                                 `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
                                  VALUES (?, ?, ?, ?, ?, ?, NOW())`,
                                 [plantName, inverterId, alarmType, alarmSeverity, problemDetails, message]
                             );
                             console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetails})`);
-                            await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: STRING_DOWN</b> 🚨\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: String ${i} (Fora)\nProdução da String ${i}: ${(detection[ipvKey] || 0).toFixed(2)}A\nPico do Inversor: ${greatestIpv.toFixed(2)}A`);
+                            await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: STRING_DOWN</b> 🚨\\nPlanta: <b>${plantName}</b>\\nInversor: <b>${inverterId}</b>\\nDetalhes: String ${stringNum} (Fora)\\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A\\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
                         }
                         stillActiveDetectedKeys.add(alarmKey);
                     } else {
-                        console.log(`[${getFormattedTimestamp()}] STRING_DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${i} (Contagem consecutiva: ${consecutiveCount_SD}/2) - Alarme não disparado ainda.`);
+                        console.log(`[${getFormattedTimestamp()}] STRING_DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_SD}/2) - Alarme não disparado ainda.`);
                     }
-                } else { // Se a condição STRING_DOWN NÃO for metida
-                    if (consecutiveCount_SD > 0) { // Reseta a contagem apenas se ela era maior que 0
-                        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para STRING_DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${i}.`);
-                        consecutiveCountsMap.set(consecutiveKey_SD, 0); // Reseta no mapa
+                } else {
+                    if (consecutiveCount_SD > 0) {
+                        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para STRING_DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum}.`);
+                        consecutiveCountsMap.set(consecutiveKey_SD, 0);
                     }
                 }
             }
 
             // --- HALF_STRING_WORKING Detection ---
-            if (greatestIpv >= 13.0) {
+            if (greatestCurrentString >= 13.0) {
                 const stringGroupingType = detection.string_grouping_type;
                 let isHalfStringWorking = false;
-                let halfWorkingStringIpv = 0;
+                let halfWorkingStringValue = 0;
                 let halfWorkingStringNum = 0;
 
-                const lowerHalfThreshold = 0.30 * greatestIpv;
-                const upperHalfThreshold = 0.70 * greatestIpv;
+                const lowerHalfThreshold = 0.30 * greatestCurrentString;
+                const upperHalfThreshold = 0.70 * greatestCurrentString;
 
-                for (let i = 1; i <= numStrings; i++) {
-                    const ipvKey = `ipv${i}`;
-                    const currentIpvValue = detection[ipvKey] || 0;
+                for (const stringNum of activeStrings) { // Iterar sobre os NÚMEROS das strings ativas
+                    const currentStringKey = `currentString${stringNum}`;
+                    const currentStringValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null;
+
+                    if (currentStringValue === null) {
+                        console.warn(`[${getFormattedTimestamp()}] Dados de currentString${stringNum} não encontrados para HALF_STRING_WORKING para Inversor: ${inverterId} na Planta: ${plantName}. Pulando esta string.`);
+                        continue;
+                    }
+
                     let shouldCheckThisStringForHalfWorking = false;
 
                     switch (stringGroupingType) {
@@ -159,63 +231,62 @@ async function checkAndManageAlarms(pool) {
                             shouldCheckThisStringForHalfWorking = true;
                             break;
                         case 'MIXED_4S_4_2P':
-                            if (i >= 5 && i <= 8) shouldCheckThisStringForHalfWorking = true;
+                            if (stringNum >= 5 && stringNum <= 8) shouldCheckThisStringForHalfWorking = true;
                             break;
                         case 'MIXED_6_2P_2S':
-                            if (i >= 1 && i <= 6) shouldCheckThisStringForHalfWorking = true;
+                            if (stringNum >= 1 && stringNum >= 1 && stringNum <= 6) shouldCheckThisStringForHalfWorking = true;
                             break;
                         default:
                             break;
                     }
 
                     if (shouldCheckThisStringForHalfWorking) {
-                        if (currentIpvValue >= lowerHalfThreshold && currentIpvValue <= upperHalfThreshold && currentIpvValue < greatestIpv) {
+                        if (currentStringValue >= lowerHalfThreshold && currentStringValue <= upperHalfThreshold && currentStringValue < greatestCurrentString) {
                             isHalfStringWorking = true;
-                            halfWorkingStringIpv = currentIpvValue;
-                            halfWorkingStringNum = i;
+                            halfWorkingStringValue = currentStringValue;
+                            halfWorkingStringNum = stringNum;
                             break;
                         }
                     }
                 }
 
-                // Lógica de contagem consecutiva para HALF_STRING_WORKING
-                const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF_STRING_WORKING`; // Chave para a contagem consecutiva de HALF_STRING_WORKING
+                const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF_STRING_WORKING_`;
                 let consecutiveCount_HSW = consecutiveCountsMap.get(consecutiveKey_HSW) || 0;
 
                 if (isHalfStringWorking) {
-                    consecutiveCount_HSW++; // Incrementa a contagem se a condição for met
-                    consecutiveCountsMap.set(consecutiveKey_HSW, consecutiveCount_HSW); // Atualiza no mapa
+                    consecutiveCount_HSW++;
+                    consecutiveCountsMap.set(consecutiveKey_HSW, consecutiveCount_HSW);
 
-                    if (consecutiveCount_HSW >= 4) { // Só dispara o alarme se a contagem for >= 4
+                    if (consecutiveCount_HSW >= 4) {
                         const problemDetails = `String ${halfWorkingStringNum} (Metade fora)`;
                         const alarmType = 'HALF_STRING_WORKING';
                         const alarmSeverity = 'Medium';
                         const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetails}`;
 
                         if (!activeAlarmsMap.has(alarmKey)) {
-                            const message = `String ${halfWorkingStringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${halfWorkingStringIpv.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestIpv.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
+                            const message = `String ${halfWorkingStringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${halfWorkingStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
                             await connection.execute(
                                 `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
                                  VALUES (?, ?, ?, ?, ?, ?, NOW())`,
                                 [plantName, inverterId, alarmType, alarmSeverity, problemDetails, message]
                             );
                             console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetails})`);
-                            await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: METADE DA STRING TRABALHANDO</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: String ${halfWorkingStringNum} (Metade Fora)\nProdução da String ${halfWorkingStringNum}: ${halfWorkingStringIpv.toFixed(2)}A\nPico do Inversor: ${greatestIpv.toFixed(2)}A`);
+                            await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: METADE DA STRING TRABALHANDO</b> ⚠️\\nPlanta: <b>${plantName}</b>\\nInversor: <b>${inverterId}</b>\\nDetalhes: String ${halfWorkingStringNum} (Metade Fora)\\nProdução da String ${halfWorkingStringNum}: ${halfWorkingStringValue.toFixed(2)}A\\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
                         }
                         stillActiveDetectedKeys.add(alarmKey);
                     } else {
                         console.log(`[${getFormattedTimestamp()}] HALF_STRING_WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${halfWorkingStringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/4) - Alarme não disparado ainda.`);
                     }
-                } else { // Se a condição HALF_STRING_WORKING NÃO for metida
-                    if (consecutiveCount_HSW > 0) { // Reseta a contagem apenas se ela era maior que 0
+                } else {
+                    if (consecutiveCount_HSW > 0) {
                         console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para HALF_STRING_WORKING para Planta: ${plantName}, Inversor: ${inverterId}.`);
                         consecutiveCountsMap.set(consecutiveKey_HSW, 0);
                     }
                 }
-            } else { // Se greatestIpv < 13.0 (Não se qualifica para HALF_STRING_WORKING)
-                const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF_STRING_WORKING`;
+            } else {
+                const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF_STRING_WORKING_`;
                 if (consecutiveCountsMap.has(consecutiveKey_HSW) && consecutiveCountsMap.get(consecutiveKey_HSW) > 0) {
-                    console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para HALF_STRING_WORKING para Planta: ${plantName}, Inversor: ${inverterId} (Pico IPV abaixo do limite).`);
+                    console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para HALF_STRING_WORKING para Planta: ${plantName}, Inversor: ${inverterId} (Pico de Corrente da String abaixo do limite).`);
                     consecutiveCountsMap.set(consecutiveKey_HSW, 0);
                 }
             }
@@ -254,22 +325,22 @@ async function checkAndManageAlarms(pool) {
                 continue;
             }
 
-            // Alarmes de e-mail do Growatt não são auto-limpáveis pelo script.
             if (alarm.alarm_type === 'GROWATT_EMAIL_EVENT') {
                 continue;
             }
 
-            // Lógica de limpeza para alarmes STRING_DOWN e HALF_STRING_WORKING
             if (alarm.alarm_type === 'STRING_DOWN' || alarm.alarm_type === 'HALF_STRING_WORKING') {
-                // Busca os dados mais recentes para reavaliar a condição
                 const [currentInverterData] = await connection.execute(`
                     SELECT
                         CAST(GREATEST(
-                            COALESCE(sd.ipv1, 0), COALESCE(sd.ipv2, 0), COALESCE(sd.ipv3, 0), COALESCE(sd.ipv4, 0),
-                            COALESCE(sd.ipv5, 0), COALESCE(sd.ipv6, 0), COALESCE(sd.ipv7, 0), COALESCE(sd.ipv8, 0)
-                        ) AS DECIMAL(10,2)) AS greatest_ipv_in_group,
-                        pc.num_strings,
+                            COALESCE(sd.currentString1, 0), COALESCE(sd.currentString2, 0), COALESCE(sd.currentString3, 0), COALESCE(sd.currentString4, 0),
+                            COALESCE(sd.currentString5, 0), COALESCE(sd.currentString6, 0), COALESCE(sd.currentString7, 0), COALESCE(sd.currentString8, 0),
+                            COALESCE(sd.currentString9, 0), COALESCE(sd.currentString10, 0), COALESCE(sd.currentString11, 0), COALESCE(sd.currentString12, 0),
+                            COALESCE(sd.currentString13, 0), COALESCE(sd.currentString14, 0), COALESCE(sd.currentString15, 0), COALESCE(sd.currentString16, 0)
+                        ) AS DECIMAL(10,2)) AS greatest_current_string,
+                        pc.num_strings, -- Manter por enquanto
                         pc.string_grouping_type,
+                        pc.active_strings_config, -- ADICIONADO AQUI TAMBÉM
                         sd.status
                     FROM solar_data sd
                     JOIN plant_config pc ON sd.plant_name = pc.plant_name AND sd.inverter_id = pc.inverter_id
@@ -278,39 +349,46 @@ async function checkAndManageAlarms(pool) {
                     LIMIT 1
                 `, [alarm.plant_name, alarm.inverter_id]);
 
-                const currentGreatestIpv = currentInverterData.length > 0 ? parseFloat(currentInverterData[0].greatest_ipv_in_group || 0) : 0;
+                const currentGreatestCurrentString = currentInverterData.length > 0 ? parseFloat(currentInverterData[0].greatest_current_string || 0) : 0;
                 const currentStatus = currentInverterData.length > 0 ? currentInverterData[0].status : null;
-                const currentNumStrings = currentInverterData.length > 0 ? currentInverterData[0].num_strings : 0;
                 const currentStringGroupingType = currentInverterData.length > 0 ? currentInverterData[0].string_grouping_type : null;
+                
+                let currentActiveStrings = [];
+                if (currentInverterData.length > 0 && Array.isArray(currentInverterData[0].active_strings_config)) {
+                    currentActiveStrings = currentInverterData[0].active_strings_config;
+                } else {
+                    console.warn(`[${getFormattedTimestamp()}] active_strings_config ausente ou inválido para reavaliação de alarme de Planta: ${alarm.plant_name}, Inversor: ${alarm.inverter_id}. Assumindo todas as strings.`);
+                    // Fallback se a config estiver ausente para limpeza. Se você deletar num_strings, ajuste isso.\
+                    // Por enquanto, vou manter um array genérico de 1 a 16 para a reavaliação, mas o ideal é que active_strings_config seja confiável.\
+                    currentActiveStrings = Array.from({length: 16}, (_, i) => i + 1);
+                }
 
                 let shouldClearThisIpvAlarm = false;
 
-                // Só limpa se o inversor não estiver offline
                 if (currentStatus !== -1) {
-                    if (alarm.alarm_type === 'STRING_DOWN' && currentGreatestIpv > 8.0) {
-                        const stringNumber = parseInt(alarm.problem_details.match(/String (\d+)/)[1]);
-                        const [stringIpvCheck] = await connection.execute(
-                            `SELECT ipv${stringNumber} FROM solar_data WHERE plant_name = ? AND inverter_id = ? ORDER BY last_update_time DESC LIMIT 1`,
-                            [alarm.plant_name, alarm.inverter_id]
-                        );
-                        const currentStringIpv = stringIpvCheck.length > 0 ? parseFloat(stringIpvCheck[0][`ipv${stringNumber}`] || 0) : 0;
+                    const stringNumber = parseInt(alarm.problem_details.match(/String (\d+)/)[1]);
+                    const currentStringKey = `currentString${stringNumber}`;
 
-                        if (currentStringIpv > 0.5) { // Se a string voltou a produzir
+                    const [currentStringCheck] = await connection.execute(
+                        `SELECT currentString${stringNumber} FROM solar_data WHERE plant_name = ? AND inverter_id = ? ORDER BY last_update_time DESC LIMIT 1`,
+                        [alarm.plant_name, alarm.inverter_id]
+                    );
+                    const currentStringValue = currentStringCheck.length > 0 ? parseFloat(currentStringCheck[0][currentStringKey] || 0) : 0;
+
+                    // Verificar se a string que disparou o alarme ainda está na lista de strings ativas.\
+                    // Se uma string for desativada via active_strings_config, o alarme deve ser limpo.\
+                    if (!currentActiveStrings.includes(stringNumber)) {
+                        shouldClearThisIpvAlarm = true;
+                        console.log(`[${getFormattedTimestamp()}] ALARME LIMPO: ${alarm.alarm_type} para Planta: ${alarm.plant_name}, Inversor: ${alarm.inverter_id} (${alarm.problem_details}) - String não está mais em active_strings_config.`);
+                    } else if (alarm.alarm_type === 'STRING_DOWN' && currentGreatestCurrentString > 8.0) {
+                        if (currentStringValue > 0.5) { 
                             shouldClearThisIpvAlarm = true;
                         }
-                    } else if (alarm.alarm_type === 'HALF_STRING_WORKING' && currentGreatestIpv >= 13.0) {
-                        const stringNumber = parseInt(alarm.problem_details.match(/String (\d+)/)[1]);
-                        const [stringIpvCheck] = await connection.execute(
-                            `SELECT ipv${stringNumber} FROM solar_data WHERE plant_name = ? AND inverter_id = ? ORDER BY last_update_time DESC LIMIT 1`,
-                            [alarm.plant_name, alarm.inverter_id]
-                        );
-                        const currentStringIpv = stringIpvCheck.length > 0 ? parseFloat(stringIpvCheck[0][`ipv${stringNumber}`] || 0) : 0;
+                    } else if (alarm.alarm_type === 'HALF_STRING_WORKING' && currentGreatestCurrentString >= 13.0) {
+                        const lowerHalfThreshold = 0.30 * currentGreatestCurrentString;
+                        const upperHalfThreshold = 0.70 * currentGreatestCurrentString;
 
-                        const lowerHalfThreshold = 0.30 * currentGreatestIpv;
-                        const upperHalfThreshold = 0.70 * currentGreatestIpv;
-
-                        // Se a string NÃO estiver mais na faixa de "metade"
-                        if (!(currentStringIpv >= lowerHalfThreshold && currentStringIpv <= upperHalfThreshold && currentStringIpv < currentGreatestIpv)) {
+                        if (!(currentStringValue >= lowerHalfThreshold && currentStringValue <= upperHalfThreshold && currentStringValue < currentGreatestCurrentString)) {
                             shouldClearThisIpvAlarm = true;
                         }
                     }
@@ -321,42 +399,37 @@ async function checkAndManageAlarms(pool) {
                         `UPDATE alarms SET cleared_at = NOW() WHERE alarm_id = ?`,
                         [alarm.alarm_id]
                     );
-                    console.log(`[${getFormattedTimestamp()}] ALARME LIMPO: ${alarm.alarm_type} para Planta: ${alarm.plant_name}, Inversor: ${alarm.inverter_id} (${alarm.problem_details || ''}) - Condição de IPV para limpeza satisfeita.`);
-                    await telegramNotifier.sendTelegramMessage(`✅ <b>ALARME RESOLVIDO: ${alarm.alarm_type.replace(/_/g, ' ')}</b> ✅\nPlanta: <b>${alarm.plant_name}</b>\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`);
+                    console.log(`[${getFormattedTimestamp()}] ALARME LIMPO: ${alarm.alarm_type} para Planta: ${alarm.plant_name}, Inversor: ${alarm.inverter_id} (${alarm.problem_details || ''}) - Condição de Corrente da String para limpeza satisfeita.`);
+                    await telegramNotifier.sendTelegramMessage(`✅ <b>ALARME RESOLVIDO: ${alarm.alarm_type.replace(/_/g, ' ')}</b> ✅\\nPlanta: <b>${alarm.plant_name}</b>\\nInversor: <b>${alarm.inverter_id}</b>\\nDetalhes: ${alarm.problem_details || 'N/A'}`);
                 } else {
-                    // Se o alarme NÃO foi limpo, ele ainda está ativo, então o mantemos no stillActiveDetectedKeys.
-                    // Isso é importante para que não seja limpo erroneamente pelo bloco final.
                     stillActiveDetectedKeys.add(alarmKey);
                 }
             } else {
-                // Limpa outros tipos de alarmes se eles não estiverem mais na lista de detecções ativas
                 await connection.execute(
                     `UPDATE alarms SET cleared_at = NOW() WHERE alarm_id = ?`,
                     [alarm.alarm_id]
                 );
                 console.log(`[${getFormattedTimestamp()}] ALARME LIMPO: ${alarm.alarm_type} para Planta: ${alarm.plant_name}, Inversor: ${alarm.inverter_id} (${alarm.problem_details || ''})`);
-                await telegramNotifier.sendTelegramMessage(`✅ <b>ALARME RESOLVIDO: ${alarm.alarm_type.replace(/_/g, ' ')}</b> ✅\nPlanta: <b>${alarm.plant_name}</b>\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`);
+                await telegramNotifier.sendTelegramMessage(`✅ <b>ALARME RESOLVIDO: ${alarm.alarm_type.replace(/_/g, ' ')}</b> ✅\\nPlanta: <b>${alarm.plant_name}</b>\\nInversor: <b>${alarm.inverter_id}</b>\\nDetalhes: ${alarm.problem_details || 'N/A'}`);
             }
         }
 
         // --- Persistir contagens consecutivas atualizadas ---
         for (const [key, count] of consecutiveCountsMap.entries()) {
-            const [plantName, inverterId, alarmType, problemDetailsPart] = key.split('_'); // Ajustado para pegar problemDetailsPart
-            // Se o alarmType for 'STRING_DOWN', o problemDetailsPart será parte da chave
-            const actualProblemDetails = (alarmType === 'STRING_DOWN' && problemDetailsPart) ? problemDetailsPart : '';
+            const [plantName, inverterId, alarmType, problemDetailsPart] = key.split('_');
+            const actualProblemDetails = (alarmType === 'STRING_DOWN' && problemDetailsPart !== undefined) ? problemDetailsPart : '';
 
             if (count > 0) {
                 await connection.execute(
                     `INSERT INTO consecutive_alarm_counts (plant_name, inverter_id, alarm_type, problem_details, consecutive_count)
                      VALUES (?, ?, ?, ?, ?)
                      ON DUPLICATE KEY UPDATE consecutive_count = VALUES(consecutive_count)`,
-                    [plantName, inverterId, alarmType, actualProblemDetails, count] // Adicionado problem_details
+                    [plantName, inverterId, alarmType, actualProblemDetails, count]
                 );
             } else {
-                // Se a contagem é 0, significa que a condição não é mais metida, então podemos remover o registro.
                 await connection.execute(
                     `DELETE FROM consecutive_alarm_counts
-                     WHERE plant_name = ? AND inverter_id = ? AND alarm_type = ? AND problem_details = ?`, // Adicionado problem_details
+                     WHERE plant_name = ? AND inverter_id = ? AND alarm_type = ? AND problem_details = ?`,
                     [plantName, inverterId, alarmType, actualProblemDetails]
                 );
             }
@@ -397,7 +470,7 @@ async function processDetections(detections, alarmType, problemDetails, alarmSev
                 [detection.plant_name, detection.inverter_id, alarmType, alarmSeverity, problemDetails || '', message]
             );
             console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${detection.plant_name}, Inversor: ${detection.inverter_id} (${problemDetails || ''})`);
-            await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: ${alarmType.replace(/_/g, ' ')}</b> 🚨\nPlanta: <b>${detection.plant_name}</b>\nInversor: <b>${detection.inverter_id}</b>\nDetalhes: ${problemDetails || 'N/A'}\n<i>${message}</i>`);
+            await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: ${alarmType.replace(/_/g, ' ')}</b> 🚨\\nPlanta: <b>${detection.plant_name}</b>\\nInversor: <b>${detection.inverter_id}</b>\\nDetalhes: ${problemDetails || 'N/A'}\\n<i>${message}</i>`);
         }
         stillActiveDetectedKeys.add(key);
     }
