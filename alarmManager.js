@@ -297,16 +297,21 @@ async function checkAndManageAlarms(pool) {
             SELECT
                 pc.plant_name,
                 pc.inverter_id,
-                sd.status
+                sd.status,
+                pc.api_type, -- Adicionado para identificar o tipo de API
+                sd.last_update_time -- Adicionado para debug, se necessário
             FROM
                 plant_config pc
             LEFT JOIN
                 solar_data sd ON pc.plant_name = sd.plant_name AND pc.inverter_id = sd.inverter_id
                 AND sd.last_update_time = (SELECT MAX(last_update_time) FROM solar_data WHERE plant_name = pc.plant_name AND inverter_id = pc.inverter_id)
             WHERE
-                sd.last_update_time IS NULL
-                OR sd.last_update_time < NOW() - INTERVAL 30 MINUTE
-                OR sd.status = -1
+                -- Condição para alarmar OFFLINE
+                -- Para GROWATT: last_update_time desatualizado OU status = -1
+                (pc.api_type = 'Growatt' AND (sd.last_update_time IS NULL OR sd.last_update_time < NOW() - INTERVAL 30 MINUTE OR sd.status = -1))
+                OR
+                -- Para SOLARMAN: APENAS se status = -1 (já que datalogger desliga)
+                (pc.api_type = 'Solarman' AND sd.status = -1)
         `);
         await processDetections(
             inverterOfflineAlarms,
