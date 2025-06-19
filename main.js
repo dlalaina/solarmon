@@ -123,10 +123,31 @@ async function retrieveAndProcessData() {
         await fs.writeFile(solarmanFullFilePath, JSON.stringify(solarmanRawData, null, ' '));
         console.log(`[${getFormattedTimestamp()}] Dados brutos Solarman salvos em ${solarmanFullFilePath}`);
 
-        // TODO: AQUI PRECISAMOS DE UMA FUNÇÃO PARA INSERIR DADOS SOLARMAN NO MYSQL
-        // O próximo passo será criar essa função e implementá-la em database.js
-        // await database.insertSolarmanDataIntoMySQL(pool, solarmanRawData);
-        // console.log(`[${getFormattedTimestamp()}] Dados Solarman inseridos/atualizados no MySQL.`);
+        // --- PREPARAR DADOS SOLARMAN PARA database.insertDataIntoMySQL ---
+        // Construir a estrutura esperada por database.js: { plants: { "plant_name": { plantName: "...", devices: { "inverter_id": {...} } } } }
+        const solarmanPlantsData = {};
+        for (const inverter of solarmanInverters) {
+            const plantName = inverter.plant_name;
+            const deviceSn = inverter.inverter_id;
+
+            if (solarmanRawData[deviceSn]) { // Garante que temos dados brutos para este inversor
+                if (!solarmanPlantsData[plantName]) {
+                    solarmanPlantsData[plantName] = {
+                        plantName: plantName,
+                        devices: {}
+                    };
+                }
+                solarmanPlantsData[plantName].devices[deviceSn] = solarmanRawData[deviceSn];
+            } else {
+                console.warn(`[${getFormattedTimestamp()}] Aviso: Dados brutos não encontrados para o inversor Solarman ${deviceSn}. Pulando processamento para este inversor.`);
+            }
+        }
+
+        const solarmanDataForProcessing = { plants: solarmanPlantsData }; // Encapsula em 'plants'
+
+        // Inserir dados Solarman no MySQL
+        await database.insertDataIntoMySQL(pool, solarmanDataForProcessing);
+        console.log(`[${getFormattedTimestamp()}] Dados Solarman inseridos/atualizados no MySQL.`);
 
     } else {
         console.log(`[${getFormattedTimestamp()}] Nenhuma planta Solarman configurada em 'plant_config'. Pulando busca de dados Solarman.`);

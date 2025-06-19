@@ -16,6 +16,7 @@
     "growatt": "^0.7.7",
     "imap": "^0.8.19",
     "mailparser": "^3.7.3",
+    "moment-timezone": "^0.6.0",
     "mysql2": "^3.14.1"
   }
 }
