@@ -79,7 +79,7 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
 
                                             console.log(`[${getFormattedTimestamp()}] Email Parsed (UID: ${emailUid}): Planta: ${plantName}, Inversor: ${inverterId}, Evento: "${eventDescription}"`);
 
-                                            const alarmType = "GROWATT_EMAIL_EVENT";
+                                            const alarmType = "GROWATT-EMAIL-EVENT";
                                             const problemDetails = eventDescription;
                                             const severity = "CRITICAL";
                                             const message = `Evento da Growatt: "${eventDescription}" (Planta: ${plantName}, Inversor: ${inverterId})`;
