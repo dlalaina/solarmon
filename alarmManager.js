@@ -151,174 +151,297 @@ async function checkAndManageAlarms(pool) {
                 continue;
             }
 
-            // --- STRING-DOWN Detection ---
-            for (const stringNum of activeStrings) {
-                const currentStringKey = `currentString${stringNum}`;
-                const alarmType = 'STRING-DOWN'; // ALTERAÇÃO: de STRING_DOWN para STRING-DOWN
-                const alarmSeverity = 'High';
+	    // --- STRING-DOWN Detection ---
+	    for (const stringNum of activeStrings) {
+	        const currentStringKey = `currentString${stringNum}`;
+	        const alarmType = 'STRING-DOWN';
+	        const alarmSeverity = 'High';
+    
+	        let problemDetailsForAlarm = `String ${stringNum} (Fora)`;
+	        let telegramMessageDetails = `String ${stringNum} (Fora)`;
+    
+	        if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
+		    const mpptToStringsMap = {
+		        1: '1,2,3',
+		        2: '4,5,6',
+		        3: '7,8,9',
+		        4: '10,11,12',
+		    };
+		    const mappedStrings = mpptToStringsMap[stringNum] || `MPPT ${stringNum}`;
+		    problemDetailsForAlarm = `MPPT ${stringNum} (Strings ${mappedStrings}) Fora`;
+		    telegramMessageDetails = `MPPT ${stringNum} (Strings ${mappedStrings}) Fora`;
+	        }
+    
+	        const consecutiveKey_SD = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
+	        let consecutiveCount_SD = consecutiveCountsMap.get(consecutiveKey_SD) || 0;
+    
+	        const stringCurrentValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null;
+    
+	        if (stringCurrentValue === null) {
+		    console.warn(`[${getFormattedTimestamp()}] Dados de currentString${stringNum} não encontrados para Inversor: ${inverterId} na Planta: ${plantName}, apesar de estar em active_strings_config. Pulando esta string.`);
+		    continue;
+	        }
+    
+	        // --- CONDIÇÃO CHAVE: Só checa STRING-DOWN se o inversor estiver produzindo ativamente ---
+	        if (greatestCurrentString > 8.0) { // O inversor está produzindo o suficiente para a análise
+		    if (stringCurrentValue <= 0.5) { // A string está com produção próxima de zero
+		        consecutiveCount_SD++;
+		        consecutiveCountsMap.set(consecutiveKey_SD, consecutiveCount_SD);
+    
+		        if (consecutiveCount_SD >= 2) {
+			    const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
+			    if (!activeAlarmsMap.has(alarmKey)) {
+			        const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção próxima de zero (${stringCurrentValue.toFixed(2)}A) enquanto outras strings estão ativas (pico: ${greatestCurrentString.toFixed(2)}A).`;
+			        await connection.execute(
+				    `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+				     VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+				    [plantName, inverterId, alarmType, alarmSeverity, problemDetailsForAlarm, message]
+			        );
+			        console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsForAlarm})`);
+			        await telegramNotifier.sendTelegramMessage(`🔴 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔴\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+			    }
+			    stillActiveDetectedKeys.add(alarmKey);
+		        } else {
+			    console.log(`[${getFormattedTimestamp()}] STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_SD}/2) - Alarme não disparado ainda.`);
+		        }
+		    } else {
+		        // A string está produzindo acima do limite de "quase zero" (0.5A) E o inversor está ativo.
+		        // Isso significa que a condição de STRING-DOWN não é mais atendida. Reseta a contagem.
+		        if (consecutiveCount_SD > 0) {
+			    console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (String produziu acima de 0.5A).`);
+			    consecutiveCountsMap.set(consecutiveKey_SD, 0);
+    
+			    const alarmKeyToClear = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
+			    if (activeAlarmsMap.has(alarmKeyToClear)) {
+			        console.log(`[${getFormattedTimestamp()}] Condição de STRING-DOWN resolvida para ${plantName} - ${inverterId} - ${problemDetailsForAlarm}. Será limpo no final.`);
+			    }
+		        }
+		    }
+	        } else {
+		    // --- SE greatestCurrentString <= 8.0 (Inversor não está produzindo o suficiente) ---
+		    // Não fazemos a checagem do alarme, e portanto, NÃO alteramos a contagem consecutiva.
+		    // O alarme só será limpo pelo loop final se a sua chave não for re-adicionada à stillActiveDetectedKeys
+		    // quando o inversor voltar a produzir e a condição do alarme não for mais detectada.
+		    if (consecutiveCount_SD > 0) {
+		        console.log(`[${getFormattedTimestamp()}] STRING-DOWN em espera para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral. Contagem mantida: ${consecutiveCount_SD}).`);
+		    }
+	        }
+	    } // Fim do loop for activeStrings para STRING-DOWN
 
-                let problemDetailsForAlarm = `String ${stringNum} (Fora)`;
-                let telegramMessageDetails = `String ${stringNum} (Fora)`;
-
-                if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
-                    const mpptToStringsMap = {
-                        1: '1,2,3',
-                        2: '4,5,6',
-                        3: '7,8,9',
-                        4: '10,11,12',
-                        // Adicione mais mapeamentos conforme a necessidade do seu modelo de inversor/MPPTs
-                    };
-                    const mappedStrings = mpptToStringsMap[stringNum] || `MPPT ${stringNum}`;
-                    problemDetailsForAlarm = `MPPT ${stringNum} (Strings ${mappedStrings}) Fora`;
-                    telegramMessageDetails = `MPPT ${stringNum} (Strings ${mappedStrings}) Fora`;
-                }
-
-                // A chave para o mapa de contagens consecutivas DEVE usar problemDetailsForAlarm
-                const consecutiveKey_SD = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
-                let consecutiveCount_SD = consecutiveCountsMap.get(consecutiveKey_SD) || 0;
-
-                const stringCurrentValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null;
-
-                if (stringCurrentValue === null) {
-                    console.warn(`[${getFormattedTimestamp()}] Dados de currentString${stringNum} não encontrados para Inversor: ${inverterId} na Planta: ${plantName}, apesar de estar em active_strings_config. Pulando esta string.`);
-                    continue;
-                }
-
-                if (stringCurrentValue <= 0.5 && greatestCurrentString > 8.0) {
-                    consecutiveCount_SD++;
-                    consecutiveCountsMap.set(consecutiveKey_SD, consecutiveCount_SD);
-
-                    if (consecutiveCount_SD >= 2) {
-                        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
-                        if (!activeAlarmsMap.has(alarmKey)) {
-                            const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção próxima de zero (${stringCurrentValue.toFixed(2)}A) enquanto outras strings estão ativas (pico: ${greatestCurrentString.toFixed(2)}A).`;
-                            await connection.execute(
-                                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                                [plantName, inverterId, alarmType, alarmSeverity, problemDetailsForAlarm, message]
-                            );
-                            console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsForAlarm})`);
-                            // ALTERAÇÃO: replace do '-' por espaço no Telegram
-                            await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🚨\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                        }
-                        stillActiveDetectedKeys.add(alarmKey);
-                    } else {
-                        console.log(`[${getFormattedTimestamp()}] STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_SD}/2) - Alarme não disparado ainda.`);
-                    }
-                } else {
-                    // Se a condição não é mais atendida, resetamos a contagem para 0
-                    if (consecutiveCount_SD > 0) {
-                        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum}.`);
-                        consecutiveCountsMap.set(consecutiveKey_SD, 0); // Usa a chave consistente aqui
-
-                        const alarmKeyToClear = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
-                        if (activeAlarmsMap.has(alarmKeyToClear)) {
-                             console.log(`[${getFormattedTimestamp()}] Condição de STRING-DOWN resolvida para ${plantName} - ${inverterId} - ${problemDetailsForAlarm}. Será limpo no final.`);
-                        }
-                    }
-                }
-            }
-
-            // --- HALF-STRING-WORKING Detection ---
-            for (const stringNum of activeStrings) { // Iterar por cada string para HALF-STRING-WORKING também
-                const currentStringKey = `currentString${stringNum}`;
-                const currentStringValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null;
-
-                if (currentStringValue === null) {
-                    console.warn(`[${getFormattedTimestamp()}] Dados de currentString${stringNum} não encontrados para HALF-STRING-WORKING para Inversor: ${inverterId} na Planta: ${plantName}. Pulando esta string.`);
-                    continue;
-                }
-
-                let shouldCheckThisStringForHalfWorking = false;
-                switch (stringGroupingType) {
-                    case 'ALL_2P':
-                        shouldCheckThisStringForHalfWorking = true;
-                        break;
-                    case 'MIXED_4S_4_2P':
-                        if (stringNum >= 5 && stringNum <= 8) shouldCheckThisStringForHalfWorking = true;
-                        break;
-                    case 'MIXED_6_2P_2S':
-                        if (stringNum >= 1 && stringNum <= 6) shouldCheckThisStringForHalfWorking = true;
-                        break;
-                    default:
-                        // Para outros stringGroupingType, não verifica HALF-STRING-WORKING por padrão.
-                        break;
-                }
-
-                if (shouldCheckThisStringForHalfWorking && greatestCurrentString >= 13.0) {
-                    const lowerHalfThreshold = 0.30 * greatestCurrentString;
-                    const upperHalfThreshold = 0.70 * greatestCurrentString;
-
-                    let halfWorkingProblemDetails = `String ${stringNum} (Metade Fora)`;
-                    let halfWorkingTelegramDetails = `String ${stringNum} (Metade Fora)`;
-
-                    if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
-                        const mpptToStringsMap = {
-                            1: '1,2,3', 2: '4,5,6', 3: '7,8,9', 4: '10,11,12',
-                        };
-                        const mappedStrings = mpptToStringsMap[stringNum] || `MPPT ${stringNum}`;
-                        halfWorkingProblemDetails = `MPPT ${stringNum} (Strings ${mappedStrings}) Metade Fora`;
-                        halfWorkingTelegramDetails = `MPPT ${stringNum} (Strings ${mappedStrings}) Metade Fora`;
-                    }
-
-                    const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`; // ALTERAÇÃO: de HALF_STRING_WORKING para HALF-STRING-WORKING
-                    let consecutiveCount_HSW = consecutiveCountsMap.get(consecutiveKey_HSW) || 0;
-
-                    if (currentStringValue >= lowerHalfThreshold && currentStringValue <= upperHalfThreshold && currentStringValue < greatestCurrentString) {
-                        consecutiveCount_HSW++;
-                        consecutiveCountsMap.set(consecutiveKey_HSW, consecutiveCount_HSW);
-
-                        if (consecutiveCount_HSW >= 4) {
-                            const alarmType = 'HALF-STRING-WORKING'; // ALTERAÇÃO: de HALF_STRING_WORKING para HALF-STRING-WORKING
-                            const alarmSeverity = 'Medium';
-                            const alarmKey = `${plantName}_${inverterId}_${alarmType}_${halfWorkingProblemDetails}`;
-
-                            if (!activeAlarmsMap.has(alarmKey)) {
-                                const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
-                                await connection.execute(
-                                    `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                                     VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                                    [plantName, inverterId, alarmType, alarmSeverity, halfWorkingProblemDetails, message]
-                                );
-                                console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
-                                // ALTERAÇÃO: replace do '-' por espaço no Telegram
-                                await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingTelegramDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                            }
-                            stillActiveDetectedKeys.add(alarmKey);
-                        } else {
-                            console.log(`[${getFormattedTimestamp()}] HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/4) - Alarme não disparado ainda.`);
-                        }
-                    } else {
-                        // Se a condição não é mais atendida, resetamos a contagem para 0
-                        if (consecutiveCount_HSW > 0) {
-                            console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum}.`);
-                            consecutiveCountsMap.set(consecutiveKey_HSW, 0);
-
-                            const alarmKeyToClear = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
-                            if (activeAlarmsMap.has(alarmKeyToClear)) {
-                                console.log(`[${getFormattedTimestamp()}] Condição de HALF-STRING-WORKING resolvida para ${plantName} - ${inverterId} - ${halfWorkingProblemDetails}. Será limpo no final.`);
-                            }
-                        }
-                    }
-                } else {
-                    // Se não deve verificar HALF-STRING-WORKING ou greatestCurrentString está abaixo do limite,
-                    // garante que a contagem seja resetada para esta string específica, caso haja uma contagem ativa.
-                    let potentialProblemDetails = `String ${stringNum} (Metade Fora)`;
-                    if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
-                        const mpptToStringsMap = {
-                            1: '1,2,3', 2: '4,5,6', 3: '7,8,9', 4: '10,11,12',
-                        };
-                        const mappedStrings = mpptToStringsMap[stringNum] || `MPPT ${stringNum}`;
-                        potentialProblemDetails = `MPPT ${stringNum} (Strings ${mappedStrings}) Metade Fora`;
-                    }
-                    const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${potentialProblemDetails}`; // ALTERAÇÃO: de HALF_STRING_WORKING para HALF-STRING-WORKING
-                    if (consecutiveCountsMap.has(consecutiveKey_HSW) && consecutiveCountsMap.get(consecutiveKey_HSW) > 0) {
-                           console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Condição não atendida ou pico de corrente baixo).`);
-                           consecutiveCountsMap.set(consecutiveKey_HSW, 0);
-                    }
-                }
-            } // Fim do loop for activeStrings para HALF-STRING-WORKING
-
+	    // --- MPPT Partial Fault (ONE-STRING-DOWN / TWO-STRINGS-DOWN) Detection ---
+	    for (const stringNum of activeStrings) {
+	        const currentStringKey = `currentString${stringNum}`;
+	        const currentStringValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null;
+    
+	        if (currentStringValue === null) {
+		    console.warn(`[${getFormattedTimestamp()}] Dados de currentString${stringNum} não encontrados para detecção de falha parcial para Inversor: ${inverterId} na Planta: ${plantName}. Pulando esta string.`);
+		    continue;
+	        }
+    
+	        // Define os detalhes comuns para as mensagens de alarme de MPPT (usado no else do greatestCurrentString < 13.0)
+	        const mpptToStringsMap = {
+		    1: '1,2,3', 2: '4,5,6', 3: '7,8,9', 4: '10,11,12', // Expanda este mapa conforme necessário para seus MPPTs
+	        };
+	        const mappedStrings = mpptToStringsMap[stringNum] || `MPPT ${stringNum}`;
+	        const problemDetailsOne = `MPPT ${stringNum} (Strings ${mappedStrings}) Uma delas Fora`;
+	        const problemDetailsTwo = `MPPT ${stringNum} (Strings ${mappedStrings}) Duas delas Fora`;
+	        const halfWorkingProblemDetails = `String ${stringNum} (Metade Fora)`; // Para HALF-STRING-WORKING
+    
+	        // CHAVE: Apenas verifica se o inversor está produzindo o suficiente para fazer uma análise.
+	        // Se greatestCurrentString < 13.0, NÃO DEVE RESETAR AS CONTAGENS.
+	        if (greatestCurrentString < 13.0) { // Mantenha este limiar de corrente de pico
+		    // Se o inversor não está produzindo o suficiente, os alarmes parciais estão "em espera".
+		    // NÃO RESETAMOS as contagens consecutivas neste cenário.
+		    // Elas só serão resetadas se a condição do alarme for explicitamente resolvida DURANTE o dia.
+		    const consecutiveKeyOne = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
+		    const consecutiveKeyTwo = `${plantName}_${inverterId}_MPPT-TWO-STRINGS-DOWN_${problemDetailsTwo}`;
+		    const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
+    
+		    if (consecutiveCountsMap.has(consecutiveKeyOne) && consecutiveCountsMap.get(consecutiveKeyOne) > 0) {
+		        console.log(`[${getFormattedTimestamp()}] MPPT-ONE-STRING-DOWN em espera para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo. Contagem mantida: ${consecutiveCountsMap.get(consecutiveKeyOne)}).`);
+		    }
+		    if (consecutiveCountsMap.has(consecutiveKeyTwo) && consecutiveCountsMap.get(consecutiveKeyTwo) > 0) {
+		        console.log(`[${getFormattedTimestamp()}] MPPT-TWO-STRINGS-DOWN em espera para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo. Contagem mantida: ${consecutiveCountsMap.get(consecutiveKeyTwo)}).`);
+		    }
+		    if (consecutiveCountsMap.has(consecutiveKey_HSW) && consecutiveCountsMap.get(consecutiveKey_HSW) > 0) {
+		        console.log(`[${getFormattedTimestamp()}] HALF-STRING-WORKING em espera para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Pico de corrente baixo. Contagem mantida: ${consecutiveCountsMap.get(consecutiveKey_HSW)}).`);
+		    }
+		    continue; // Pula a verificação de detecção para esta string com baixa produção geral
+	        }
+    
+	        // --- SE greatestCurrentString >= 13.0 (Inversor está produzindo o suficiente) ---
+	        // Agora podemos avaliar as condições dos alarmes parciais e resetar/incrementar as contagens.
+    
+	        // --- Lógica de Detecção para Solarman (ALL_3P) ---
+	        if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
+		    const consecutiveKeyOne = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
+		    const consecutiveKeyTwo = `${plantName}_${inverterId}_MPPT-TWO-STRINGS-DOWN_${problemDetailsTwo}`;
+    
+		    // Limiares para 3 strings:
+		    const lowerOneThreshold = 0.50 * greatestCurrentString;
+		    const upperOneThreshold = 0.80 * greatestCurrentString;
+		    const lowerTwoThreshold = 0.15 * greatestCurrentString;
+		    const upperTwoThreshold = 0.45 * greatestCurrentString;
+    
+		    let detectedOneOut = false;
+		    let detectedTwoOut = false;
+    
+		    // Verifica "Duas strings fora" primeiro, pois é uma condição mais severa e exclusiva
+		    if (currentStringValue >= lowerTwoThreshold && currentStringValue <= upperTwoThreshold) {
+		        detectedTwoOut = true;
+		    }
+		    // Se não detectou duas fora, verifica "Uma string fora"
+		    else if (currentStringValue >= lowerOneThreshold && currentStringValue <= upperOneThreshold) {
+		        detectedOneOut = true;
+		    }
+    
+		    // Processa o alarme "Duas strings fora"
+		    if (detectedTwoOut) {
+		        let consecutiveCount_TSD = consecutiveCountsMap.get(consecutiveKeyTwo) || 0;
+		        consecutiveCount_TSD++;
+		        consecutiveCountsMap.set(consecutiveKeyTwo, consecutiveCount_TSD);
+    
+		        if (consecutiveCount_TSD >= 4) { // Requer 4 detecções consecutivas
+			    const alarmType = 'MPPT-TWO-STRINGS-DOWN';
+			    const alarmSeverity = 'High'; // Mais severo
+			    const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsTwo}`;
+    
+			    if (!activeAlarmsMap.has(alarmKey)) {
+			        const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerTwoThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperTwoThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica DUAS STRINGS FORA.`;
+			        await connection.execute(
+				    `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+				     VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+				    [plantName, inverterId, alarmType, alarmSeverity, problemDetailsTwo, message]
+			        );
+			        console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsTwo})`);
+			        await telegramNotifier.sendTelegramMessage(`🔥 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔥\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+			    }
+			    stillActiveDetectedKeys.add(alarmKey);
+		        } else {
+			    console.log(`[${getFormattedTimestamp()}] MPPT-TWO-STRINGS-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_TSD}/4) - Alarme não disparado ainda.`);
+		        }
+		        // Garante que o alarme de 'Uma string fora' seja resetado se 'Duas strings fora' for detectado
+		        if (consecutiveCountsMap.has(consecutiveKeyOne) && consecutiveCountsMap.get(consecutiveKeyOne) > 0) {
+			    console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para MPPT-ONE-STRING-DOWN (detectado TWO-STRINGS-DOWN).`);
+			    consecutiveCountsMap.set(consecutiveKeyOne, 0);
+		        }
+    
+		    } else {
+		        // Se "Duas strings fora" não foi detectado NESTE CICLO, reseta sua contagem
+		        if (consecutiveCountsMap.has(consecutiveKeyTwo) && consecutiveCountsMap.get(consecutiveKeyTwo) > 0) {
+			    console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para MPPT-TWO-STRINGS-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Condição não atendida).`);
+			    consecutiveCountsMap.set(consecutiveKeyTwo, 0);
+			    const alarmKeyToClear = `${plantName}_${inverterId}_MPPT-TWO-STRINGS-DOWN_${problemDetailsTwo}`;
+			    if (activeAlarmsMap.has(alarmKeyToClear)) {
+			        console.log(`[${getFormattedTimestamp()}] Condição de MPPT-TWO-STRINGS-DOWN resolvida para ${plantName} - ${inverterId} - ${problemDetailsTwo}. Será limpo no final.`);
+			    }
+		        }
+    
+		        // Processa o alarme "Uma string fora" (apenas se 'Duas strings fora' não foi detectado)
+		        if (detectedOneOut) {
+			    let consecutiveCount_OSD = consecutiveCountsMap.get(consecutiveKeyOne) || 0;
+			    consecutiveCount_OSD++;
+			    consecutiveCountsMap.set(consecutiveKeyOne, consecutiveCount_OSD);
+    
+			    if (consecutiveCount_OSD >= 4) { // Requer 4 detecções consecutivas
+			        const alarmType = 'MPPT-ONE-STRING-DOWN';
+			        const alarmSeverity = 'Medium';
+			        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsOne}`;
+    
+			        if (!activeAlarmsMap.has(alarmKey)) {
+				    const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerOneThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperOneThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica UMA STRING FORA.`;
+				    await connection.execute(
+				        `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+				         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+				        [plantName, inverterId, alarmType, alarmSeverity, problemDetailsOne, message]
+				    );
+				    console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsOne})`);
+				    await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+			        }
+			        stillActiveDetectedKeys.add(alarmKey);
+			    } else {
+			        console.log(`[${getFormattedTimestamp()}] MPPT-ONE-STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_OSD}/4) - Alarme não disparado ainda.`);
+			    }
+		        } else {
+			    // Se "Uma string fora" não foi detectado NESTE CICLO, reseta sua contagem
+			    if (consecutiveCountsMap.has(consecutiveKeyOne) && consecutiveCountsMap.get(consecutiveKeyOne) > 0) {
+			        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para MPPT-ONE-STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Condição não atendida).`);
+			        consecutiveCountsMap.set(consecutiveKeyOne, 0);
+			        const alarmKeyToClear = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
+			        if (activeAlarmsMap.has(alarmKeyToClear)) {
+				    console.log(`[${getFormattedTimestamp()}] Condição de MPPT-ONE-STRING-DOWN resolvida para ${plantName} - ${inverterId} - ${problemDetailsOne}. Será limpo no final.`);
+			        }
+			    }
+		        }
+		    }
+	        }
+	        // --- Lógica de Detecção para Outros stringGroupingType (Growatt, 2P etc.) ---
+	        else {
+		    let shouldCheckThisStringForHalfWorking = false;
+		    switch (stringGroupingType) {
+		        case 'ALL_2P':
+			    shouldCheckThisStringForHalfWorking = true;
+			    break;
+		        case 'MIXED_4S_4_2P':
+			    if (stringNum >= 5 && stringNum <= 8) shouldCheckThisStringForHalfWorking = true;
+			    break;
+		        case 'MIXED_6_2P_2S':
+			    if (stringNum >= 1 && stringNum <= 6) shouldCheckThisStringForHalfWorking = true;
+			    break;
+		        default:
+			    break;
+		    }
+    
+		    if (shouldCheckThisStringForHalfWorking) { // greatestCurrentString >= 13.0 já foi verificado acima
+		        const lowerHalfThreshold = 0.30 * greatestCurrentString;
+		        const upperHalfThreshold = 0.70 * greatestCurrentString;
+    
+		        // halfWorkingProblemDetails já definido no escopo superior deste `if (greatestCurrentString < 13.0)`
+		        // let halfWorkingProblemDetails = `String ${stringNum} (Metade Fora)`; // Remova esta linha repetida
+    
+		        const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
+		        let consecutiveCount_HSW = consecutiveCountsMap.get(consecutiveKey_HSW) || 0;
+    
+		        if (currentStringValue >= lowerHalfThreshold && currentStringValue <= upperHalfThreshold && currentStringValue < greatestCurrentString) {
+			    consecutiveCount_HSW++;
+			    consecutiveCountsMap.set(consecutiveKey_HSW, consecutiveCount_HSW);
+    
+			    if (consecutiveCount_HSW >= 4) {
+			        const alarmType = 'HALF-STRING-WORKING';
+			        const alarmSeverity = 'Medium';
+			        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${halfWorkingProblemDetails}`;
+    
+			        if (!activeAlarmsMap.has(alarmKey)) {
+				    const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
+				    await connection.execute(
+				        `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+				         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+				        [plantName, inverterId, alarmType, alarmSeverity, halfWorkingProblemDetails, message]
+				    );
+				    console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
+				    await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+			        }
+			        stillActiveDetectedKeys.add(alarmKey);
+			    } else {
+			        console.log(`[${getFormattedTimestamp()}] HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/4) - Alarme não disparado ainda.`);
+			    }
+		        } else {
+			    // A condição HALF-STRING-WORKING não é mais atendida ENQUANTO o inversor está produzindo ativamente.
+			    // Reseta a contagem.
+			    if (consecutiveCount_HSW > 0) {
+			        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Condição não atendida).`);
+			        consecutiveCountsMap.set(consecutiveKey_HSW, 0);
+    
+			        const alarmKeyToClear = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
+			        if (activeAlarmsMap.has(alarmKeyToClear)) {
+				    console.log(`[${getFormattedTimestamp()}] Condição de HALF-STRING-WORKING resolvida para ${plantName} - ${inverterId} - ${halfWorkingProblemDetails}. Será limpo no final.`);
+			        }
+			    }
+		        }
+		    }
+	        }
+	    } // Fim do loop for activeStrings para MPPT Partial Fault
+    
         } // Fim do loop principal for dayIpvAlarms
 
         // --- 2b. Inverter Offline Alarms ---
@@ -455,9 +578,6 @@ async function checkAndManageAlarms(pool) {
 
             const finalPlantName = key.substring(0, key.indexOf('_'));
             const finalInverterId = key.substring(key.indexOf('_') + 1, finalAlarmTypeLastUnderscoreIndex);
-
-
-            console.log(`[${getFormattedTimestamp()}] DEBUG - Salvando no DB: Plant='${finalPlantName}', Inverter='${finalInverterId}', AlarmType='${finalAlarmType}', ProblemDetails='${finalProblemDetails}', Count=${count}`);
 
             if (count > 0) {
                 await connection.execute(
