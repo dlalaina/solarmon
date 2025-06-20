@@ -139,9 +139,9 @@ app.post('/api/clear-alarm/:alarmId', async (req, res) => {
 
         const alarm = alarms[0];
 
-        if (alarm.alarm_type !== 'GROWATT_EMAIL_EVENT') {
+        if (alarm.alarm_type !== 'GROWATT-EMAIL-EVENT') {
             await connection.rollback();
-            return res.status(400).json({ message: 'Apenas alarmes do tipo GROWATT_EMAIL_EVENT podem ser limpos por esta rota via botão.' });
+            return res.status(400).json({ message: 'Apenas alarmes do tipo GROWATT-EMAIL-EVENT podem ser limpos por esta rota via botão.' });
         }
 
         if (alarm.cleared_at !== null) {
@@ -160,7 +160,7 @@ app.post('/api/clear-alarm/:alarmId', async (req, res) => {
         }
 
         await connection.commit();
-        console.log(`[${getFormattedTimestamp()}] Alarme ID ${alarmId} do tipo 'GROWATT_EMAIL_EVENT' limpo manualmente via web.`);
+        console.log(`[${getFormattedTimestamp()}] Alarme ID ${alarmId} do tipo 'GROWATT-EMAIL-EVENT' limpo manualmente via web.`);
         res.json({ message: 'Alarme limpo com sucesso!', alarmId: alarmId });
 
     } catch (error) {
@@ -245,7 +245,7 @@ app.get('/api/plants-summary', async (req, res) => {
             }
         });
 
-        // Prioridade 2: Aplicar status baseados em alarmes (Vermelho para GROWATT_EMAIL_EVENT, Amarelo, Cinza),
+        // Prioridade 2: Aplicar status baseados em alarmes (Vermelho para GROWATT-EMAIL-EVENT, Amarelo, Cinza),
         // respeitando prioridades mais altas (Vermelho de códigos de falha)
         activeAlarmsRows.forEach(alarm => {
             if (summary[alarm.inverter_id]) {
@@ -258,16 +258,16 @@ app.get('/api/plants-summary', async (req, res) => {
                     return;
                 }
 
-                // Regra 1b: Vermelho para GROWATT_EMAIL_EVENT
-                if (alarm.alarm_type === 'GROWATT_EMAIL_EVENT') {
+                // Regra 1b: Vermelho para GROWATT-EMAIL-EVENT
+                if (alarm.alarm_type === 'GROWATT-EMAIL-EVENT') {
                     item.status = 'red';
                 }
-                // Regra 2: Amarelo para STRING_DOWN ou HALF_STRING_WORKING
-                else if (alarm.alarm_type === 'STRING_DOWN' || alarm.alarm_type === 'HALF_STRING_WORKING') {
+                // Regra 2: Amarelo para STRING-DOWN ou HALF-STRING-WORKING
+                else if (alarm.alarm_type === 'STRING-DOWN' || alarm.alarm_type === 'HALF-STRING-WORKING') {
                     item.status = 'yellow';
                 }
-                // Regra 3: Cinza para INVERTER_OFFLINE
-                else if (alarm.alarm_type === 'INVERTER_OFFLINE') {
+                // Regra 3: Cinza para INVERTER-OFFLINE
+                else if (alarm.alarm_type === 'INVERTER-OFFLINE') {
                     // Aplicar cinza apenas se não for já vermelho ou amarelo
                     if (item.status !== 'yellow') { // 'red' já é tratado pelo retorno anterior
                         item.status = 'gray';
