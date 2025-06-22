@@ -225,6 +225,29 @@ async function checkAndManageAlarms(pool) {
 		    if (consecutiveCount_SD > 0) {
 		        console.log(`[${getFormattedTimestamp()}] STRING-DOWN em espera para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral. Contagem mantida: ${consecutiveCount_SD}).`);
 		    }
+
+            // NOVO: Se o alarme STRING-DOWN para esta string já estiver ativo,
+            // e o inversor estiver com baixa produção geral, não o limpe.
+            // Mantenha-o na lista de ativos detectados para que não seja removido.
+            const alarmKeyForProblemDetails = `String ${stringNum} (Fora)`; // Default problem details
+            let problemDetailsKeyForExistingAlarm = alarmKeyForProblemDetails;
+
+            if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
+                const mpptToStringsMap = {
+                    1: '1,2,3', 2: '4,5,6', 3: '7,8,9', 4: '10,11,12',
+                };
+                const mappedStrings = mpptToStringsMap[stringNum] || `MPPT ${stringNum}`;
+                problemDetailsKeyForExistingAlarm = `MPPT ${stringNum} (Strings ${mappedStrings}) Fora`;
+            }
+            
+            const alarmKey_SD_Full = `${plantName}_${inverterId}_${alarmType}_${problemDetailsKeyForExistingAlarm}`;
+
+            if (activeAlarmsMap.has(alarmKey_SD_Full)) {
+                // Se o alarme STRING-DOWN para esta string/MPPT já existe no DB,
+                // e o inversor está em baixa produção, mantenha-o como ativo detectado
+                stillActiveDetectedKeys.add(alarmKey_SD_Full);
+                console.log(`[${getFormattedTimestamp()}] Mantendo alarme STRING-DOWN ativo para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+            }
 	        }
 	    } // Fim do loop for activeStrings para STRING-DOWN
 
@@ -256,7 +279,29 @@ async function checkAndManageAlarms(pool) {
 		    const consecutiveKeyOne = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
 		    const consecutiveKeyTwo = `${plantName}_${inverterId}_MPPT-TWO-STRINGS-DOWN_${problemDetailsTwo}`;
 		    const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
-    
+
+                    // --- INÍCIO DA ALTERAÇÃO SUGERIDA PARA MANTER ALARMES ATIVOS ---
+                    // Se o alarme já estiver ativo no banco de dados, adicione-o a stillActiveDetectedKeys
+                    // para evitar que seja limpo erroneamente devido à baixa produção geral.
+                    const alarmKeyOne = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
+                    if (activeAlarmsMap.has(alarmKeyOne)) {
+                        stillActiveDetectedKeys.add(alarmKeyOne);
+                        console.log(`[${getFormattedTimestamp()}] Mantendo alarme MPPT-ONE-STRING-DOWN ativo para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+                    }
+
+                    const alarmKeyTwo = `${plantName}_${inverterId}_MPPT-TWO-STRINGS-DOWN_${problemDetailsTwo}`;
+                    if (activeAlarmsMap.has(alarmKeyTwo)) {
+                        stillActiveDetectedKeys.add(alarmKeyTwo);
+                        console.log(`[${getFormattedTimestamp()}] Mantendo alarme MPPT-TWO-STRINGS-DOWN ativo para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+                    }
+
+                    const alarmKeyHSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
+                    if (activeAlarmsMap.has(alarmKeyHSW)) {
+                        stillActiveDetectedKeys.add(alarmKeyHSW);
+                        console.log(`[${getFormattedTimestamp()}] Mantendo alarme HALF-STRING-WORKING ativo para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+                    }
+                    // --- FIM DA ALTERAÇÃO SUGERIDA ---
+
 		    if (consecutiveCountsMap.has(consecutiveKeyOne) && consecutiveCountsMap.get(consecutiveKeyOne) > 0) {
 		        console.log(`[${getFormattedTimestamp()}] MPPT-ONE-STRING-DOWN em espera para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo. Contagem mantida: ${consecutiveCountsMap.get(consecutiveKeyOne)}).`);
 		    }
