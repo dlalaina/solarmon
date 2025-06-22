@@ -46,7 +46,23 @@ async function fetchAndRenderPlantsSummary() {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const summaryData = await response.json();
+        let summaryData = await response.json(); // Use 'let' para reatribuir
+
+        // --- INÍCIO DA ALTERAÇÃO PARA ORDENAÇÃO ---
+        const statusOrder = { 'red': 1, 'yellow': 2, 'gray': 3, 'green': 4 };
+
+        summaryData.sort((a, b) => {
+            const orderA = statusOrder[a.status] || 99; // 99 para status desconhecidos (ir para o final)
+            const orderB = statusOrder[b.status] || 99;
+
+            if (orderA === orderB) {
+                // Se os status forem iguais, mantenha a ordem original ou adicione uma ordem secundária
+                // Por exemplo, para ordenar por nome da planta em ordem alfabética:
+                return a.plant_name.localeCompare(b.plant_name);
+            }
+            return orderA - orderB;
+        });
+        // --- FIM DA ALTERAÇÃO PARA ORDENAÇÃO ---
 
         if (summaryData.length === 0) {
             noPlantsSummaryMessage.classList.remove('hidden');
