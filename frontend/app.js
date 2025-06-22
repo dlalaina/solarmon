@@ -113,20 +113,20 @@ async function fetchAlarms(type = 'active') {
                 observationCell.dataset.alarmId = alarm.alarm_id;
                 observationCell.innerHTML = alarm.observation ? escapeHTML(alarm.observation) : '<span class="no-observation-placeholder">Adicionar Observação</span>';
 
-
-                // Adiciona a coluna de ações se for a visualização de alarmes ativos
-                if (type === 'active') {
-                    const actionCell = row.insertCell();
-                    if (alarm.alarm_type === 'GROWATT_EMAIL_EVENT') {
-                        const clearButton = document.createElement('button');
-                        clearButton.textContent = 'Limpar Alarme';
-                        clearButton.className = 'clear-alarm-button'; // Classe para estilização
-                        clearButton.onclick = () => clearAlarm(alarm.alarm_id, clearButton);
-                        actionCell.appendChild(clearButton);
-                    } else {
-                        actionCell.textContent = 'N/A'; // Ou vazio para outros tipos de alarme
-                    }
-                }
+		// Adiciona a coluna de ações se for a visualização de alarmes ativos
+		if (type === 'active') {
+		    const actionCell = row.insertCell();
+		    // Adiciona a condição para SOLARMAN_EMAIL_EVENT
+		    if (alarm.alarm_type === 'GROWATT_EMAIL_EVENT' || alarm.alarm_type === 'SOLARMAN_EMAIL_EVENT') {
+			const clearButton = document.createElement('button');
+			clearButton.textContent = 'Limpar Alarme';
+			clearButton.className = 'clear-alarm-button'; // Classe para estilização
+			clearButton.onclick = () => clearAlarm(alarm.alarm_id, clearButton);
+			actionCell.appendChild(clearButton);
+		    } else {
+			actionCell.textContent = 'N/A'; // Ou vazio para outros tipos de alarme
+		    }
+		}
             });
         }
     } catch (error) {
