@@ -316,13 +316,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setActiveButton(showActiveBtn); // Garante que o botão "Ativos" esteja ativo no carregamento
     fetchAlarms('active'); // Carrega a tabela de alarmes
     fetchAndRenderPlantsSummary(); // Chama a função do novo resumo
-
-document.addEventListener('DOMContentLoaded', () => {
-    // ... seu código existente que já está aqui (setActiveButton, fetchAlarms, fetchAndRenderPlantsSummary) ...
-
     // NOVO CÓDIGO PARA REFRESH AUTOMÁTICO
     setTimeout(() => {
         location.reload(); // Recarrega a página
     }, 60 * 1000); // 60 segundos * 1000 milissegundos = 1 minuto
-});
 });
