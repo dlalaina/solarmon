@@ -1,7 +1,7 @@
 // web_server.js
 const express = require('express');
 const fs = require('fs');
-//const bodyParser = require('body-parser'); // Para parsear o JSON do Telegram
+const jwt = require('jsonwebtoken'); // Para geração e verificação de tokens JWT
 const { sendTelegramMessage, init: initTelegramNotifier } = require('./telegramNotifier');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
@@ -18,13 +18,17 @@ try {
     process.exit(1);
 }
 
-// --- CORREÇÃO AQUI: Use 'chatId' do credentials.json ---
-// Renomeei a variável para 'adminChatId' para maior clareza de propósito,
-// mas o importante é que ela leia 'credentials.telegram.chatId'.
+// --- CONFIGURAÇÃO JWT (AGORA DO credentials.json) ---
+// Certifique-se de que a seção 'auth' existe em seu credentials.json
+const JWT_SECRET = credentials.auth.jwtSecret;
+const ADMIN_USERNAME = credentials.auth.adminUsername;
+const ADMIN_PASSWORD = credentials.auth.adminPassword;
+// --- FIM DA CONFIGURAÇÃO JWT ---
+
+// --- Inicialização do Telegram Notifier ---
 const adminChatId = credentials.telegram.chatId;
-initTelegramNotifier(credentials.telegram.botToken, adminChatId); // Passe o adminChatId correto
+initTelegramNotifier(credentials.telegram.botToken, adminChatId);
 console.log(`[${getFormattedTimestamp()}] Telegram Notifier inicializado no web_server.`);
-// --- FIM DA CORREÇÃO ---
 
 // --- MySQL Connection Configuration ---
 const dbConfig = {
@@ -55,18 +59,46 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json()); // Middleware para parsear JSON no corpo da requisição
 
-// --- NOVO ENDPOINT PARA O WEBHOOK DO TELEGRAM ---
+// --- MIDDLEWARE DE AUTENTICAÇÃO ---
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Formato: Bearer TOKEN
+
+    if (token == null) return res.status(401).json({ message: 'Token de autenticação ausente.' });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            console.error(`[${getFormattedTimestamp()}] Erro na verificação do token:`, err.message);
+            return res.status(403).json({ message: 'Token inválido ou expirado.' });
+        }
+        req.user = user; // Adiciona o payload do token à requisição
+        next(); // Continua para a próxima middleware/rota
+    });
+}
+// --- FIM DO MIDDLEWARE DE AUTENTICAÇÃO ---
+
+// --- Rota de Login ---
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+
+    // Autenticação usando credenciais do credentials.json
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+        const user = { name: username, role: 'admin' }; // Payload do token
+        const accessToken = jwt.sign(user, JWT_SECRET, { expiresIn: '1h' }); // Token expira em 1 hora
+        res.json({ accessToken: accessToken, username: user.name });
+    } else {
+        res.status(401).json({ message: 'Credenciais inválidas.' });
+    }
+});
+
+// --- ENDPOINT PARA O WEBHOOK DO TELEGRAM ---
 app.post('/telegram-webhook', async (req, res) => {
-    // É uma boa prática responder rapidamente ao Telegram para evitar reenvios.
     res.sendStatus(200);
 
     const update = req.body;
-    // console.log('Recebida atualização do Telegram:', JSON.stringify(update, null, 2)); // Para debug
-
     if (!update || !update.message) {
-        // Ignorar atualizações que não são mensagens (ex: edições de mensagens, callbacks)
         return;
     }
 
@@ -82,6 +114,10 @@ app.post('/telegram-webhook', async (req, res) => {
 
     // --- LOG PARA COLETAR CHAT_IDS ---
     const CHAT_IDS_LOG_FILE = path.join(__dirname, 'logs', 'received_chat_ids.log');
+    const logDir = path.dirname(CHAT_IDS_LOG_FILE);
+    if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+    }
     fs.appendFile(CHAT_IDS_LOG_FILE, logEntry, (err) => {
         if (err) {
             console.error('Erro ao escrever no arquivo de log de chat_ids:', err);
@@ -90,17 +126,14 @@ app.post('/telegram-webhook', async (req, res) => {
 
     console.log(`[${getFormattedTimestamp()}] Mensagem recebida de ${firstName || userName || userId} (Chat ID: ${chatId}): "${messageText}"`);
 
-   // --- Lógica para o comando "cadastrar" ---
-    // Verifica se a mensagem de texto existe e contém a palavra "cadastrar" (case-insensitive)
+    // --- Lógica para o comando "cadastrar" ---
     if (messageText && typeof messageText === 'string' && messageText.toLowerCase().includes('cadastrar')) {
         try {
-            // 1. Enviar para o usuário: "Obrigado por se cadastrar."
             await sendTelegramMessage('Obrigado por se cadastrar. Seu ID de chat foi registrado.', chatId);
             console.log(`[${getFormattedTimestamp()}] Enviado mensagem de cadastro para ${firstName || userName || userId} (Chat ID: ${chatId}).`);
 
             await new Promise(resolve => setTimeout(resolve, 1000)); // Espera 1 segundo
 
-            // 2. Enviar para você (adminChatId): CHAT_ID, USER_ID, USERNAME, NAME
             const adminNotificationMessage =
                 `Novo cadastro de usuário:\n` +
                 `CHAT_ID: <code>${chatId}</code>\n` +
@@ -108,19 +141,16 @@ app.post('/telegram-webhook', async (req, res) => {
                 `USERNAME: ${userName || 'N/A'}\n` +
                 `NOME: ${firstName || ''} ${lastName || ''}`;
 
-            // Envia para o adminChatId (você)
-            await sendTelegramMessage(adminNotificationMessage, adminChatId); // Agora usa a variável corrigida
+            await sendTelegramMessage(adminNotificationMessage, adminChatId);
             console.log(`[${getFormattedTimestamp()}] Notificação de novo cadastro enviada para o admin.`);
 
         } catch (error) {
             console.error(`[${getFormattedTimestamp()}] Erro ao processar comando 'cadastrar' ou enviar notificação para ${chatId}:`, error.response ? error.response.data : error.message);
         }
     }
-    // --- Adicione aqui outras lógicas do seu bot, se necessário ---
-    // Ex: Responder a /start, etc.
 });
 
-// --- Rota da API para obter alarmes ativos ---
+// --- Rotas da API existentes (não protegidas ainda) ---
 app.get('/api/alarms/active', async (req, res) => {
     let connection;
     try {
@@ -140,7 +170,6 @@ app.get('/api/alarms/active', async (req, res) => {
     }
 });
 
-// --- Rota da API para obter alarmes históricos (limpos) ---
 app.get('/api/alarms/history', async (req, res) => {
     let connection;
     try {
@@ -161,94 +190,7 @@ app.get('/api/alarms/history', async (req, res) => {
     }
 });
 
-// --- Endpoint para atualizar a observação de um alarme ---
-app.put('/api/alarms/:id/observation', async (req, res) => {
-    const { id } = req.params;
-    const { observation } = req.body;
-
-    if (observation === undefined) {
-        return res.status(400).json({ error: 'Campo "observation" é obrigatório no corpo da requisição.' });
-    }
-
-    let connection;
-    try {
-        connection = await pool.getConnection();
-        const [result] = await connection.execute(
-            `UPDATE alarms SET observation = ? WHERE alarm_id = ?`,
-            [observation, id]
-        );
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Alarme não encontrado.' });
-        }
-
-        res.json({ message: 'Observação do alarme atualizada com sucesso.' });
-    } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro ao atualizar observação para o alarme ${id}:`, error.message);
-        res.status(500).json({ error: 'Erro ao atualizar observação.' });
-    } finally {
-        if (connection) connection.release();
-    }
-});
-
-
-// --- Endpoint para limpar um alarme manualmente ---
-app.post('/api/clear-alarm/:alarmId', async (req, res) => {
-    const { alarmId } = req.params;
-    let connection;
-
-    try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-
-        const [alarms] = await connection.execute(
-            `SELECT alarm_id, alarm_type, cleared_at FROM alarms WHERE alarm_id = ? FOR UPDATE`,
-            [alarmId]
-        );
-
-        if (alarms.length === 0) {
-            await connection.rollback();
-            return res.status(404).json({ message: 'Alarme não encontrado.' });
-        }
-
-        const alarm = alarms[0];
-
-        if (alarm.alarm_type !== 'GROWATT-EMAIL-EVENT') {
-            await connection.rollback();
-            return res.status(400).json({ message: 'Apenas alarmes do tipo GROWATT-EMAIL-EVENT podem ser limpos por esta rota via botão.' });
-        }
-
-        if (alarm.cleared_at !== null) {
-            await connection.rollback();
-            return res.status(400).json({ message: 'Alarme já está limpo.' });
-        }
-
-        const [updateResult] = await connection.execute(
-            `UPDATE alarms SET cleared_at = NOW(), cleared_by = ? WHERE alarm_id = ?`,
-            ['Manual Web', alarmId]
-        );
-
-        if (updateResult.affectedRows === 0) {
-            await connection.rollback();
-            return res.status(500).json({ message: 'Nenhum alarme foi atualizado (pode já ter sido limpo por outro processo).' });
-        }
-
-        await connection.commit();
-        console.log(`[${getFormattedTimestamp()}] Alarme ID ${alarmId} do tipo 'GROWATT-EMAIL-EVENT' limpo manualmente via web.`);
-        res.json({ message: 'Alarme limpo com sucesso!', alarmId: alarmId });
-
-    } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] ERRO ao limpar alarme ID ${alarmId} (Manual Web):`, error.message);
-        if (connection) {
-            await connection.rollback();
-        }
-        res.status(500).json({ error: 'Erro interno do servidor ao limpar alarme.' });
-    } finally {
-        if (connection) connection.release();
-    }
-});
-
-// --- NOVO ENDPOINT: /api/plants-summary ---
+// --- ENDPOINT: /api/plants-summary ---
 app.get('/api/plants-summary', async (req, res) => {
     let connection;
     try {
@@ -361,6 +303,93 @@ app.get('/api/plants-summary', async (req, res) => {
     }
 });
 
+// --- ENDPOINTS PROTEGIDOS ---
+// Aplica o middleware authenticateToken a estas rotas
+app.put('/api/alarms/:id/observation', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { observation } = req.body;
+
+    if (observation === undefined) {
+        return res.status(400).json({ error: 'Campo "observation" é obrigatório no corpo da requisição.' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const [result] = await connection.execute(
+            `UPDATE alarms SET observation = ? WHERE alarm_id = ?`,
+            [observation, id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Alarme não encontrado.' });
+        }
+
+        res.json({ message: 'Observação do alarme atualizada com sucesso.' });
+    } catch (error) {
+        console.error(`[${getFormattedTimestamp()}] Erro ao atualizar observação para o alarme ${id}:`, error.message);
+        res.status(500).json({ error: 'Erro ao atualizar observação.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.post('/api/clear-alarm/:alarmId', authenticateToken, async (req, res) => {
+    const { alarmId } = req.params;
+    let connection;
+
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [alarms] = await connection.execute(
+            `SELECT alarm_id, alarm_type, cleared_at FROM alarms WHERE alarm_id = ? FOR UPDATE`,
+            [alarmId]
+        );
+
+        if (alarms.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Alarme não encontrado.' });
+        }
+
+        const alarm = alarms[0];
+
+        // REMOVIDO: A restrição de tipo de alarme para limpar
+        // if (alarm.alarm_type !== 'GROWATT-EMAIL-EVENT') {
+        //     await connection.rollback();
+        //     return res.status(400).json({ message: 'Apenas alarmes do tipo GROWATT-EMAIL-EVENT podem ser limpos por esta rota via botão.' });
+        // }
+
+        if (alarm.cleared_at !== null) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'Alarme já está limpo.' });
+        }
+
+        const [updateResult] = await connection.execute(
+            `UPDATE alarms SET cleared_at = NOW(), cleared_by = ? WHERE alarm_id = ?`,
+            ['Manual Web', alarmId]
+        );
+
+        if (updateResult.affectedRows === 0) {
+            await connection.rollback();
+            return res.status(500).json({ message: 'Nenhum alarme foi atualizado (pode já ter sido limpo por outro processo).' });
+        }
+
+        await connection.commit();
+        console.log(`[${getFormattedTimestamp()}] Alarme ID ${alarmId} do tipo '${alarm.alarm_type}' limpo manualmente via web.`); // Log mais genérico
+        res.json({ message: 'Alarme limpo com sucesso!', alarmId: alarmId });
+
+    } catch (error) {
+        console.error(`[${getFormattedTimestamp()}] ERRO ao limpar alarme ID ${alarmId} (Manual Web):`, error.message);
+        if (connection) {
+            await connection.rollback();
+        }
+        res.status(500).json({ error: 'Erro interno do servidor ao limpar alarme.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 // Inicia o servidor
 const server = app.listen(PORT, () => {
     console.log(`[${getFormattedTimestamp()}] Servidor web rodando na porta ${PORT}`);
@@ -381,3 +410,4 @@ const shutdown = async (signal) => {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+

@@ -1,39 +1,87 @@
 body {
-    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; /* Fonte mais moderna */
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     margin: 0;
     padding: 20px;
-    background-color: #121212; /* Fundo bem escuro, quase preto */
-    color: #e0e0e0; /* Cor de texto clara */
+    background-color: #121212;
+    color: #e0e0e0;
     line-height: 1.6;
 }
 
 .container {
     max-width: 1200px;
     margin: 20px auto;
-    background-color: #1e1e1e; /* Um pouco mais claro que o fundo do body */
+    background-color: #1e1e1e;
     padding: 30px;
-    border-radius: 12px; /* Mais arredondado */
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5); /* Sombra mais pronunciada para destaque */
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
 }
 
-h1, h2 {
-    text-align: center;
-    color: #61dafb; /* Um azul mais vibrante para destaque em temas escuros */
+/* --- NOVO: Estilos para o cabeçalho e controle de autenticação --- */
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 25px;
-    font-weight: 600; /* Um pouco mais encorpado */
+    padding-bottom: 15px;
+    border-bottom: 1px solid #333;
+}
+
+.dashboard-header h1 {
+    margin: 0; /* Remove margem padrão para alinhar com flexbox */
+    color: #61dafb;
+    font-weight: 600;
+    text-align: left; /* Alinha o título à esquerda no header */
+}
+
+.auth-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.auth-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.3s ease;
+}
+
+.auth-button:hover {
+    background-color: #0056b3;
+}
+
+#loggedInUser {
+    color: #a0a0a0;
+    font-size: 0.9em;
+    font-style: italic;
+    margin-right: 5px;
+}
+
+/* --- FIM: Estilos para o cabeçalho e controle de autenticação --- */
+
+
+h2 {
+    text-align: center;
+    color: #61dafb;
+    margin-bottom: 25px;
+    font-weight: 600;
 }
 
 /* --- Estilos para a nova seção de resumo --- */
 .summary-section {
-    margin-bottom: 40px; /* Espaçamento entre a tabela de resumo e os botões de filtro */
+    margin-bottom: 40px;
     padding: 20px;
-    background-color: #252525; /* Fundo ligeiramente diferente para a seção */
+    background-color: #252525;
     border-radius: 10px;
     box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
 }
 
 .summary-section table {
-    margin-top: 15px; /* Espaço entre o título implícito e a tabela */
+    margin-top: 15px;
 }
 
 /* Estilos para as bolinhas de status */
@@ -41,33 +89,33 @@ h1, h2 {
     display: inline-block;
     width: 15px;
     height: 15px;
-    border-radius: 50%; /* Faz a bolinha ser um círculo */
-    margin-right: 8px; /* Espaço entre a bolinha e o texto */
-    vertical-align: middle; /* Alinha verticalmente com o texto */
-    border: 1px solid rgba(255, 255, 255, 0.2); /* Borda sutil */
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+    border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .status-green {
-    background-color: #28a745; /* Verde */
+    background-color: #28a745;
 }
 
 .status-yellow {
-    background-color: #ffc107; /* Amarelo */
+    background-color: #ffc107;
 }
 
 .status-gray {
-    background-color: #6c757d; /* Cinza */
+    background-color: #6c757d;
 }
 
 .status-red {
-    background-color: #dc3545; /* Vermelho */
+    background-color: #dc3545;
 }
 /* --- Fim dos estilos da seção de resumo --- */
 
 .filter-buttons {
-    display: flex; /* Para desktop, mantenha flexbox para linha */
-    justify-content: center; /* Centraliza horizontalmente no desktop */
-    gap: 15px; /* Espaço entre botões no desktop */
+    display: flex;
+    justify-content: center;
+    gap: 15px;
     margin-bottom: 20px;
 }
 
@@ -96,42 +144,40 @@ h1, h2 {
 
 table {
     width: 100%;
-    border-collapse: separate; /* Permite border-radius nas células */
-    border-spacing: 0; /* Remove espaço entre as células */
+    border-collapse: separate;
+    border-spacing: 0;
     margin-top: 20px;
-    border-radius: 10px; /* Arredonda os cantos da tabela inteira */
-    overflow: hidden; /* Garante que os cantos arredondados sejam respeitados */
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Sombra para a tabela */
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
 table thead {
-    background-color: #2a2a2a; /* Fundo do cabeçalho da tabela */
+    background-color: #2a2a2a;
     color: #f0f0f0;
 }
 
 table th, table td {
-    padding: 15px 20px; /* Mais padding para melhor espaçamento */
+    padding: 15px 20px;
     text-align: left;
-    border-bottom: 1px solid #333; /* Linhas de grade mais escuras */
+    border-bottom: 1px solid #333;
 }
 
-table th:first-child { border-top-left-radius: 10px; } /* Arredonda o canto superior esquerdo do cabeçalho */
-table th:last-child { border-top-right-radius: 10px; } /* Arredonda o canto superior direito do cabeçalho */
-/* Como a nova tabela tem o thead fixo, talvez você queira aplicar isso a #alarmsTable thead th:first-child, etc. */
-/* Para a nova tabela, vamos manter simples ou aplicar os mesmos estilos */
+table th:first-child { border-top-left-radius: 10px; }
+table th:last-child { border-top-right-radius: 10px; }
 
 
 table tbody tr {
-    background-color: #1e1e1e; /* Fundo das linhas do corpo */
+    background-color: #1e1e1e;
     transition: background-color 0.2s ease;
 }
 
 table tbody tr:nth-child(even) {
-    background-color: #222; /* Linhas pares ligeiramente diferentes */
+    background-color: #222;
 }
 
 table tbody tr:hover {
-    background-color: #2a2a2a; /* Cor no hover para destaque */
+    background-color: #2a2a2a;
 }
 
 .loading, .no-alarms {
@@ -144,47 +190,48 @@ table tbody tr:hover {
     border-radius: 8px;
 }
 
+/* CORRIGIDO: Garante que .hidden sempre oculta o elemento */
 .hidden {
-    display: none;
+    display: none !important; 
 }
 
 /* --- ESTILOS ADICIONADOS PARA A COLUNA DE OBSERVAÇÃO --- */
 .observation-cell {
     position: relative;
     cursor: pointer;
-    min-width: 200px; /* Aumentado para acomodar texto e controles */
-    vertical-align: top; /* Alinha o conteúdo ao topo em células multi-linha */
-    padding: 12px 15px; /* Ajuste o padding para harmonizar com a tabela */
-    box-sizing: border-box; /* Garante que padding não adicione largura extra */
+    min-width: 200px;
+    vertical-align: top;
+    padding: 12px 15px;
+    box-sizing: border-box;
 }
 
 .observation-textarea {
-    width: calc(100% - 10px); /* Ajustado para deixar espaço para padding */
-    min-height: 80px; /* Altura mínima para edição */
+    width: calc(100% - 10px);
+    min-height: 80px;
     box-sizing: border-box;
-    resize: vertical; /* Permite redimensionar verticalmente */
+    resize: vertical;
     padding: 8px;
     margin-bottom: 8px;
-    border: 1px solid #61dafb; /* Borda da cor de destaque */
+    border: 1px solid #61dafb;
     border-radius: 6px;
     font-family: inherit;
-    font-size: 0.95em; /* Ligeiramente menor que o texto normal da tabela */
-    background-color: #2a2a2a; /* Fundo escuro para o textarea */
-    color: #e0e0e0; /* Texto claro */
+    font-size: 0.95em;
+    background-color: #2a2a2a;
+    color: #e0e0e0;
 }
 
 .observation-cell button {
-    margin-right: 8px; /* Mais espaço entre os botões */
+    margin-right: 8px;
     padding: 8px 15px;
     border: none;
-    border-radius: 6px; /* Mais arredondado */
+    border-radius: 6px;
     cursor: pointer;
     font-size: 0.9em;
     transition: background-color 0.3s ease, transform 0.2s ease;
 }
 
 .observation-cell .save-observation-btn {
-    background-color: #28a745; /* Verde para salvar */
+    background-color: #28a745;
     color: white;
 }
 
@@ -194,7 +241,7 @@ table tbody tr:hover {
 }
 
 .observation-cell .cancel-observation-btn {
-    background-color: #dc3545; /* Vermelho para cancelar */
+    background-color: #dc3545;
     color: white;
 }
 
@@ -206,13 +253,13 @@ table tbody tr:hover {
 .no-observation-placeholder {
     font-style: italic;
     color: #888;
-    display: block; /* Garante que o placeholder ocupe a linha inteira */
-    padding: 5px 0; /* Pequeno padding para o placeholder */
+    display: block;
+    padding: 5px 0;
 }
 
 /* --- ESTILOS EXISTENTES PARA O BOTÃO DE LIMPAR ALARME (REVISADO PARA CONTEXTO DARK) --- */
 .clear-alarm-button {
-    background-color: #e74c3c; /* Vermelho vibrante */
+    background-color: #e74c3c;
     color: white;
     border: none;
     padding: 8px 12px;
@@ -223,75 +270,175 @@ table tbody tr:hover {
 }
 
 .clear-alarm-button:hover {
-    background-color: #c0392b; /* Vermelho mais escuro no hover */
+    background-color: #c0392b;
 }
 
 .clear-alarm-button:disabled {
-    background-color: #7f8c8d; /* Cinza para botão desabilitado */
+    background-color: #7f8c8d;
     cursor: not-allowed;
 }
 
 .loading-button {
-    background-color: #f39c12; /* Laranja para estado de carregamento */
+    background-color: #f39c12;
 }
 
-/* --- Media Query para telas menores que 768px (celulares/tablets) --- */
+/* --- NOVO: Estilos do Modal de Login --- */
+.modal {
+    display: flex; /* Usa flexbox para centralizar */
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.7); /* Fundo semi-transparente */
+    justify-content: center; /* Centraliza horizontalmente */
+    align-items: center; /* Centraliza verticalmente */
+}
+
+.modal-content {
+    background-color: #1e1e1e;
+    margin: auto; /* Centraliza no layout flex */
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.7);
+    width: 90%;
+    max-width: 400px; /* Limita largura em telas maiores */
+    position: relative; /* Para posicionar o botão de fechar */
+    border: 1px solid #333;
+}
+
+.close-button {
+    color: #aaa;
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: #61dafb;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.modal-content h2 {
+    text-align: center;
+    color: #61dafb;
+    margin-bottom: 20px;
+    font-size: 1.8em;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #e0e0e0;
+    font-weight: 500;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"] {
+    width: calc(100% - 20px); /* Ajusta largura para padding */
+    padding: 10px;
+    border: 1px solid #555;
+    border-radius: 5px;
+    background-color: #2a2a2a;
+    color: #e0e0e0;
+    font-size: 1em;
+}
+
+.form-group input[type="text"]:focus,
+.form-group input[type="password"]:focus {
+    border-color: #61dafb;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(97, 218, 251, 0.3);
+}
+
+.submit-button {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1.1em;
+    width: 100%;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+.submit-button:hover {
+    background-color: #218838;
+    transform: translateY(-1px);
+}
+
+.login-message {
+    color: #dc3545;
+    text-align: center;
+    margin-bottom: 15px;
+    font-weight: bold;
+}
+
+/* --- Media Queries para Responsividade --- */
 @media (max-width: 768px) {
-    /* Ajuste do contêiner dos botões */
-    .filter-buttons {
-        /* Remove justify-content: center; para quando estiverem em coluna */
-        flex-direction: column; /* Faz os botões ficarem um abaixo do outro */
-        align-items: center; /* Centraliza os itens horizontalmente na coluna */
-        gap: 10px; /* Ajusta o espaço entre eles quando empilhados */
-        /* Garante que o contêiner .filter-buttons ocupe toda a largura disponível */
-        width: 100%;
-        /* Pode ser útil verificar se há padding no contêiner pai que os está empurrando */
-        /* Por exemplo, se .container tem padding, os 100% dos botões respeitarão isso */
-    }
-
-    /* Regras para os botões individuais DENTRO da media query */
-    .filter-buttons button {
-        width: 90%; /* Ajusta a largura dos botões para 90% */
-        max-width: 300px; /* Impede que fiquem muito largos em tablets */
-        display: block; /* Garante que eles ocupem a linha inteira, como já tinha */
-        margin: 0 auto; /* Isso é crucial para centralizar um elemento de bloco */
-        margin-bottom: 0; /* Remove o margin-bottom anterior para não duplicar com o gap */
-    }
-
     .container {
-        padding: 10px; /* Mantém o padding reduzido para o contêiner geral */
+        padding: 10px;
     }
-}
+    .dashboard-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .auth-controls {
+        margin-top: 15px;
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .auth-button {
+        width: auto; /* Deixa o botão se ajustar ao conteúdo */
+        flex-grow: 1; /* Permite que eles cresçam para preencher espaço */
+    }
 
-/* Estilos para tabelas responsivas */
-@media (max-width: 768px) {
-    /* Para tabelas dentro de .summary-section e .alarm-section */
+    .filter-buttons {
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+    }
+    .filter-buttons button {
+        width: 90%;
+        max-width: 300px;
+        display: block;
+        margin: 0 auto;
+        margin-bottom: 0;
+    }
+
     .summary-section table,
     .alarm-section table {
-        display: block; /* Faz a tabela se comportar como um bloco, essencial para overflow */
-        overflow-x: auto; /* Adiciona uma barra de rolagem horizontal se o conteúdo for maior que a tela */
-        -webkit-overflow-scrolling: touch; /* Melhora a rolagem em dispositivos iOS */
-        width: 100%; /* Garante que o contêiner da tabela ocupe 100% da largura disponível */
-        white-space: nowrap; /* Impede que o conteúdo das células da tabela quebre em várias linhas, forçando a rolagem */
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+        white-space: nowrap;
     }
-
-    /* Opcional: Ajustar largura mínima de colunas ou tamanho da fonte para que caiba mais conteúdo */
     .summary-section th, .summary-section td,
     .alarm-section th, .alarm-section td {
-        font-size: 0.85em; /* Reduz ligeiramente o tamanho da fonte para caber mais */
-        padding: 8px 10px; /* Ajusta o padding */
+        font-size: 0.85em;
+        padding: 8px 10px;
+    }
+
+    /* Ajustes para o modal em telas menores */
+    .modal-content {
+        padding: 20px;
+    }
+    .modal-content h2 {
+        font-size: 1.5em;
     }
 }
 
-/* Outros ajustes gerais para telas pequenas, se necessário */
-@media (max-width: 768px) {
-    .container {
-        padding: 10px; /* Reduz o padding geral do contêiner em telas pequenas */
-    }
-    /* Botões de filtro (showActiveAlarms, showHistoryAlarms) */
-    .filter-buttons button {
-        width: 100%; /* Faz com que cada botão ocupe 100% da largura */
-        margin-bottom: 10px; /* Adiciona um pequeno espaço entre eles */
-        display: block; /* Garante que fiquem um abaixo do outro */
-    }
-}

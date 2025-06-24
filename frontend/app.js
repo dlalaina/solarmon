@@ -1,5 +1,5 @@
 // app.js
-const API_BASE_URL = '/api/alarms'; // Use a porta que você configurou no server.js
+const API_BASE_URL = '/api/alarms';
 
 // Elementos da tabela de alarmes existentes
 const alarmsTable = document.getElementById('alarmsTable');
@@ -16,12 +16,21 @@ const plantsSummaryTableBody = document.querySelector('#plantsSummaryTable tbody
 const loadingSummaryIndicator = document.getElementById('loadingSummary');
 const noPlantsSummaryMessage = document.getElementById('noPlantsSummary');
 
+// NOVOS ELEMENTOS para Autenticação
+const loginButton = document.getElementById('loginButton');
+const logoutButton = document.getElementById('logoutButton');
+const loggedInUserSpan = document.getElementById('loggedInUser');
+const loginModal = document.getElementById('loginModal');
+const closeButton = loginModal.querySelector('.close-button');
+const loginForm = document.getElementById('loginForm');
+const loginMessage = document.getElementById('loginMessage');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
 
 // Helper para formatar data/hora
 const formatDateTime = (isoString) => {
     if (!isoString) return '';
     const date = new Date(isoString);
-    // Formato para DD/MM/YYYY HH:MM:SS
     return date.toLocaleString('pt-BR', {
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit', second: '2-digit'
@@ -35,6 +44,83 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
+// --- FUNÇÕES DE AUTENTICAÇÃO (NOVO) ---
+
+// Verifica se o usuário está logado
+function isLoggedIn() {
+    return localStorage.getItem('accessToken') !== null;
+}
+
+// Obtém o nome de usuário logado
+function getLoggedInUsername() {
+    return localStorage.getItem('username');
+}
+
+// Atualiza a UI de autenticação
+function updateAuthUI() {
+    if (isLoggedIn()) {
+        loginButton.classList.add('hidden');
+        logoutButton.classList.remove('hidden');
+        loggedInUserSpan.classList.remove('hidden');
+        loggedInUserSpan.textContent = `Logado como: ${getLoggedInUsername()}`;
+    } else {
+        loginButton.classList.remove('hidden');
+        logoutButton.classList.add('hidden');
+        loggedInUserSpan.classList.add('hidden');
+        loggedInUserSpan.textContent = '';
+    }
+    // Re-renderiza alarmes para mostrar/esconder coluna de Ações e edição de observação
+    fetchAlarms(sectionTitle.textContent === 'Alarmes Ativos' ? 'active' : 'history');
+}
+
+// Lógica de Login
+async function handleLogin(event) {
+    event.preventDefault(); // Impede o envio padrão do formulário
+
+    const username = usernameInput.value;
+    const password = passwordInput.value;
+
+    loginMessage.classList.add('hidden'); // Esconde mensagens anteriores
+
+    try {
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            localStorage.setItem('accessToken', data.accessToken);
+            localStorage.setItem('username', data.username);
+            loginModal.classList.add('hidden'); // Esconde o modal
+            updateAuthUI(); // Atualiza a UI
+            usernameInput.value = ''; // Limpa campos
+            passwordInput.value = '';
+            console.log("Login bem-sucedido!");
+        } else {
+            loginMessage.textContent = data.message || 'Erro no login.';
+            loginMessage.classList.remove('hidden');
+            console.error("Erro no login:", data.message);
+        }
+    } catch (error) {
+        loginMessage.textContent = 'Erro ao conectar ao servidor.';
+        loginMessage.classList.remove('hidden');
+        console.error("Erro de rede/servidor no login:", error);
+    }
+}
+
+// Lógica de Logout
+function handleLogout() {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('username');
+    updateAuthUI();
+    console.log("Logout realizado.");
+}
+
 // --- FUNÇÃO PARA BUSCAR E RENDERIZAR O RESUMO DAS PLANTAS ---
 async function fetchAndRenderPlantsSummary() {
     loadingSummaryIndicator.classList.remove('hidden');
@@ -46,23 +132,19 @@ async function fetchAndRenderPlantsSummary() {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        let summaryData = await response.json(); // Use 'let' para reatribuir
+        let summaryData = await response.json();
 
-        // --- INÍCIO DA ALTERAÇÃO PARA ORDENAÇÃO ---
         const statusOrder = { 'red': 1, 'yellow': 2, 'gray': 3, 'green': 4 };
 
         summaryData.sort((a, b) => {
-            const orderA = statusOrder[a.status] || 99; // 99 para status desconhecidos (ir para o final)
+            const orderA = statusOrder[a.status] || 99;
             const orderB = statusOrder[b.status] || 99;
 
             if (orderA === orderB) {
-                // Se os status forem iguais, mantenha a ordem original ou adicione uma ordem secundária
-                // Por exemplo, para ordenar por nome da planta em ordem alfabética:
                 return a.plant_name.localeCompare(b.plant_name);
             }
             return orderA - orderB;
         });
-        // --- FIM DA ALTERAÇÃO PARA ORDENAÇÃO ---
 
         if (summaryData.length === 0) {
             noPlantsSummaryMessage.classList.remove('hidden');
@@ -74,11 +156,10 @@ async function fetchAndRenderPlantsSummary() {
                 
                 const statusCell = row.insertCell();
                 const statusCircle = document.createElement('span');
-                statusCircle.classList.add('status-circle', `status-${item.status}`); // Adiciona classes para a bolinha
+                statusCircle.classList.add('status-circle', `status-${item.status}`);
                 statusCell.appendChild(statusCircle);
 
-                // CORRIGIDO: Garante que e_today seja um número antes de usar toFixed()
-                const eTodayValue = parseFloat(item.e_today); // Tenta converter para número
+                const eTodayValue = parseFloat(item.e_today);
                 row.insertCell().textContent = `${!isNaN(eTodayValue) ? eTodayValue.toFixed(2) : 'N/A'}`;
             });
         }
@@ -91,12 +172,11 @@ async function fetchAndRenderPlantsSummary() {
     }
 }
 
-
-// --- FUNÇÃO PARA BUSCAR E RENDERIZAR OS ALARMES (EXISTENTE) ---
+// --- FUNÇÃO PARA BUSCAR E RENDERIZAR OS ALARMES ---
 async function fetchAlarms(type = 'active') {
     loadingIndicator.classList.remove('hidden');
     alarmsTableBody.innerHTML = ''; // Limpa a tabela
-    noAlarmsMessage.classList.add('hidden'); // Esconde a mensagem de "nenhum alarme"
+    noAlarmsMessage.classList.add('hidden');
 
     try {
         const response = await fetch(`${API_BASE_URL}/${type}`);
@@ -105,22 +185,22 @@ async function fetchAlarms(type = 'active') {
         }
         const alarms = await response.json();
 
-        // Atualiza o cabeçalho da tabela dinamicamente
-        updateTableHeader(type);
+        // Atualiza o cabeçalho da tabela dinamicamente, passando o estado de login
+        updateTableHeader(type, isLoggedIn());
 
         if (alarms.length === 0) {
             noAlarmsMessage.classList.remove('hidden');
         } else {
             alarms.forEach(alarm => {
                 const row = alarmsTableBody.insertRow();
-                row.dataset.alarmId = alarm.alarm_id; // Armazena o ID do alarme na linha
+                row.dataset.alarmId = alarm.alarm_id;
 
                 row.insertCell().textContent = alarm.alarm_id;
                 row.insertCell().textContent = alarm.plant_name;
                 row.insertCell().textContent = alarm.inverter_id;
                 row.insertCell().textContent = alarm.alarm_type;
-                row.insertCell().textContent = alarm.problem_details || 'N/A'; // Detalhes podem ser nulos
-                row.insertCell().textContent = formatDateTime(alarm.triggered_at); // Usar triggered_at
+                row.insertCell().textContent = alarm.problem_details || 'N/A';
+                row.insertCell().textContent = formatDateTime(alarm.triggered_at);
                 row.insertCell().textContent = alarm.cleared_at ? formatDateTime(alarm.cleared_at) : '---';
 
                 // --- NOVA CÉLULA: Observação ---
@@ -128,46 +208,40 @@ async function fetchAlarms(type = 'active') {
                 observationCell.classList.add('observation-cell');
                 observationCell.dataset.alarmId = alarm.alarm_id;
                 observationCell.innerHTML = alarm.observation ? escapeHTML(alarm.observation) : '<span class="no-observation-placeholder">Adicionar Observação</span>';
-
-		// Adiciona a coluna de ações se for a visualização de alarmes ativos
-		if (type === 'active') {
-		    const actionCell = row.insertCell();
-		    // Adiciona a condição para SOLARMAN_EMAIL_EVENT
-		    if (alarm.alarm_type === 'GROWATT_EMAIL_EVENT' || alarm.alarm_type === 'SOLARMAN_EMAIL_EVENT') {
-			const clearButton = document.createElement('button');
-			clearButton.textContent = 'Limpar Alarme';
-			clearButton.className = 'clear-alarm-button'; // Classe para estilização
-			clearButton.onclick = () => clearAlarm(alarm.alarm_id, clearButton);
-			actionCell.appendChild(clearButton);
-		    } else {
-			actionCell.textContent = 'N/A'; // Ou vazio para outros tipos de alarme
-		    }
-		}
+                
+                // Adiciona a coluna de ações e o botão 'Limpar Alarme' APENAS se logado
+                if (type === 'active' && isLoggedIn()) {
+                    const actionCell = row.insertCell();
+                    const clearButton = document.createElement('button');
+                    clearButton.textContent = 'Limpar Alarme';
+                    clearButton.className = 'clear-alarm-button';
+                    clearButton.onclick = () => clearAlarm(alarm.alarm_id, clearButton);
+                    actionCell.appendChild(clearButton);
+                }
             });
         }
     } catch (error) {
         console.error("Erro ao buscar alarmes:", error);
-        // Ajuste o colspan para refletir o número total de colunas (agora com Observação)
-        const totalColumns = type === 'active' ? 9 : 8; // 8 para histórico, 9 para ativos (com observação + ação)
+        // Ajusta o colspan dinamicamente
+        const totalColumns = type === 'active' && isLoggedIn() ? 9 : 8; // 8 para histórico, 9 para ativos (com observação + ação)
         alarmsTableBody.innerHTML = `<tr><td colspan="${totalColumns}" style="color: red; text-align: center;">Erro ao carregar alarmes: ${error.message}</td></tr>`;
-        noAlarmsMessage.classList.add('hidden'); // Esconde a mensagem de "nenhum alarme" em caso de erro
+        noAlarmsMessage.classList.add('hidden');
     } finally {
         loadingIndicator.classList.add('hidden');
     }
 }
 
-function updateTableHeader(type) {
-    alarmsTableHead.innerHTML = ''; // Limpa o cabeçalho existente
-    const headerRow = document.createElement('tr'); // CORRIGIDO: Crie um <tr>
-    alarmsTableHead.appendChild(headerRow); // CORRIGIDO: Adicione o <tr> ao <thead>
+// ATUALIZADA: updateTableHeader agora recebe um parâmetro isLoggedIn
+function updateTableHeader(type, authenticated) {
+    alarmsTableHead.innerHTML = '';
+    const headerRow = document.createElement('tr');
+    alarmsTableHead.appendChild(headerRow);
     
-    // Define os cabeçalhos fixos
     const headers = [
         'ID', 'Planta', 'Inversor', 'Tipo', 'Detalhes', 'Ativado Em', 'Limpo Em', 'Observação'
     ];
 
-    // Adiciona "Ações" apenas para alarmes ativos
-    if (type === 'active') {
+    if (type === 'active' && authenticated) { // Mostra 'Ações' apenas se ativo E autenticado
         headers.push('Ações');
     }
 
@@ -180,44 +254,63 @@ function updateTableHeader(type) {
 
 // Nova função para limpar o alarme
 async function clearAlarm(alarmId, buttonElement) {
+    // Substitui alert/confirm por um modal futuro se necessário
     if (!confirm(`Tem certeza que deseja limpar o alarme ID ${alarmId}?`)) {
         return;
     }
 
     buttonElement.disabled = true;
     buttonElement.textContent = 'Limpando...';
-    buttonElement.classList.add('loading-button'); // Adiciona classe para feedback visual
+    buttonElement.classList.add('loading-button');
 
     try {
-        const response = await fetch(`/api/clear-alarm/${alarmId}`, { // Rota direta para a API
+        const accessToken = localStorage.getItem('accessToken');
+        const response = await fetch(`/api/clear-alarm/${alarmId}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}` // Inclui o token JWT
             }
         });
 
         const result = await response.json();
 
         if (response.ok) {
-            alert(result.message);
-            // Re-fetch os alarmes para atualizar a lista
+            alert(result.message); // Usando alert provisoriamente
             fetchAlarms('active');
-            fetchAndRenderPlantsSummary(); // Atualiza também o resumo da planta
+            fetchAndRenderPlantsSummary();
         } else {
-            throw new Error(result.message || 'Erro desconhecido ao limpar alarme.');
+            // Lidar com erros de autenticação ou autorização
+            if (response.status === 401 || response.status === 403) {
+                alert(`Sessão expirada ou não autorizado. Por favor, faça login novamente.`);
+                handleLogout(); // Força o logout no frontend
+            } else {
+                throw new Error(result.message || 'Erro desconhecido ao limpar alarme.');
+            }
         }
     } catch (error) {
         console.error('Erro ao limpar alarme:', error);
-        alert(`Falha ao limpar alarme: ${error.message}`);
+        alert(`Falha ao limpar alarme: ${error.message}`); // Usando alert provisoriamente
         buttonElement.disabled = false;
         buttonElement.textContent = 'Limpar Alarme';
         buttonElement.classList.remove('loading-button');
     }
 }
 
-// Lógica para edição da Observação (existente)
+// Lógica para edição da Observação (existente, AGORA CONDICIONAL)
 document.addEventListener('click', async (event) => {
     const target = event.target;
+
+    // Se o usuário NÃO ESTIVER LOGADO, sai imediatamente
+    if (!isLoggedIn()) {
+        // Se tentar clicar em uma célula de observação quando não logado,
+        // pode adicionar um feedback visual (opcional)
+        if (target.classList.contains('observation-cell')) {
+             console.log("É necessário estar logado para editar observações.");
+             // alert("É necessário estar logado para editar observações."); // Opcional
+        }
+        return;
+    }
 
     // Se clicou em uma célula de observação e não está editando ainda
     if (target.classList.contains('observation-cell') && !target.querySelector('textarea')) {
@@ -257,26 +350,32 @@ document.addEventListener('click', async (event) => {
         target.nextSibling.disabled = true;
 
         try {
+            const accessToken = localStorage.getItem('accessToken'); // Obtém o token
             const response = await fetch(`/api/alarms/${alarmId}/observation`, {
                 method: 'PUT',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}` // Envia o token
                 },
                 body: JSON.stringify({ observation: newObservation })
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || 'Falha ao salvar observação');
+                // Lidar com erros de autenticação ou autorização
+                if (response.status === 401 || response.status === 403) {
+                    alert(`Sessão expirada ou não autorizado. Por favor, faça login novamente.`);
+                    handleLogout(); // Força o logout no frontend
+                } else {
+                    throw new Error(errorData.error || 'Falha ao salvar observação');
+                }
             }
 
             const cell = target.parentNode;
             cell.innerHTML = newObservation ? escapeHTML(newObservation) : '<span class="no-observation-placeholder">Adicionar Observação</span>';
-            // Alert opcional, pode ser substituído por feedback visual no próprio dashboard
-            // alert('Observação salva com sucesso!');
         } catch (error) {
             console.error('Erro ao salvar observação:', error);
-            alert('Erro ao salvar observação: ' + error.message);
+            alert('Erro ao salvar observação: ' + error.message); // Usando alert provisoriamente
             const cell = target.parentNode;
             cell.innerHTML = target.parentNode.querySelector('.cancel-observation-btn').dataset.originalObservation || '<span class="no-observation-placeholder">Adicionar Observação</span>';
         } finally {
@@ -311,13 +410,36 @@ showHistoryBtn.addEventListener('click', () => {
     fetchAlarms('history');
 });
 
+// Event Listeners para os novos botões de autenticação
+loginButton.addEventListener('click', () => {
+    loginModal.classList.remove('hidden'); // Mostra o modal
+    loginMessage.classList.add('hidden'); // Esconde mensagens anteriores
+    usernameInput.focus();
+});
+
+closeButton.addEventListener('click', () => {
+    loginModal.classList.add('hidden'); // Esconde o modal
+});
+
+// Fecha o modal se clicar fora dele
+window.addEventListener('click', (event) => {
+    if (event.target === loginModal) {
+        loginModal.classList.add('hidden');
+    }
+});
+
+loginForm.addEventListener('submit', handleLogin);
+logoutButton.addEventListener('click', handleLogout);
+
+
 // Carrega dados iniciais ao carregar a página
 document.addEventListener('DOMContentLoaded', () => {
-    setActiveButton(showActiveBtn); // Garante que o botão "Ativos" esteja ativo no carregamento
-    fetchAlarms('active'); // Carrega a tabela de alarmes
-    fetchAndRenderPlantsSummary(); // Chama a função do novo resumo
+    setActiveButton(showActiveBtn);
+    fetchAndRenderPlantsSummary(); // Carrega o resumo primeiro
+    updateAuthUI(); // Isso irá chamar fetchAlarms('active') UMA VEZ para a tabela principal
     // NOVO CÓDIGO PARA REFRESH AUTOMÁTICO
     setTimeout(() => {
-        location.reload(); // Recarrega a página
-    }, 60 * 1000); // 60 segundos * 1000 milissegundos = 1 minuto
+        location.reload();
+    }, 60 * 1000);
 });
+

@@ -5,14 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico"> </head>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <meta property="og:description" content="Acompanhe o status e a geração de energia das suas plantas solares em tempo real.">
-    <meta property="og:image" content="https://solarmon.powerplantsbrazil.com/preview-solarmon.png"> <meta property="og:url" content="https://solarmon.powerplantsbrazil.com/">
+    <meta property="og:image" content="https://solarmon.powerplantsbrazil.com/preview-solarmon.png">
+    <meta property="og:url" content="https://solarmon.powerplantsbrazil.com/">
     <meta property="og:type" content="website">
 </head>
 <body>
     <div class="container">
-        <h1>Dashboard</h1>
+        <!-- Cabeçalho com título e botões de login/logout (NOVO) -->
+        <header class="dashboard-header">
+            <h1>Dashboard</h1>
+            <div class="auth-controls">
+                <span id="loggedInUser" class="hidden"></span>
+                <button id="loginButton" class="auth-button">Logar</button>
+                <button id="logoutButton" class="auth-button hidden">Sair</button>
+            </div>
+        </header>
 
         <div class="summary-section">
             <div id="loadingSummary" class="loading hidden">Carregando resumo dos inversores...</div>
@@ -49,6 +58,27 @@
         </div>
     </div>
 
+    <!-- Modal de Login (NOVO) -->
+    <div id="loginModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>Login</h2>
+            <div id="loginMessage" class="login-message hidden"></div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Usuário:</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Senha:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="submit-button">Entrar</button>
+            </form>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
+
