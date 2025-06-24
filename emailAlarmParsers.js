@@ -2,24 +2,52 @@
 const { getFormattedTimestamp } = require('./utils');
 
 /**
- * Parses an email text body for Growatt alarm details.
- * @param {string} emailText The plain text content of the email.
+ * Parses an email HTML body for Growatt alarm details.
+ * @param {string} emailHtml The HTML content of the email.
  * @returns {object|null} An object with extracted alarm details or null if no match.
  */
-function parseGrowattEmail(emailText) {
-    const regex = /Device serial number:([^\n]+)\nDevice alias:[^\n]+\nDataLog serial number:[^\n]+\nDataLog alias:[^\n]+\nPlant name:([^\n]+)\nTime:([^\n]+)\nEvent id:([^\(]+)\([^\)]+\)\nEvent description:([^\n]+)\nSuggestion:[^\n]+/;
-    const match = emailText.match(regex);
+function parseGrowattEmail(emailHtml) {
+    // Regexes para extrair os dados da estrutura de tabela HTML
+    // Eles buscam a tag <td> com o rótulo e em seguida a próxima <td> com o valor.
+    const inverterIdRegex = /Device serial number:<\/td><td>(\w+)<\/td>/;
+    const plantNameRegex = /Plant name:<\/td><td>([^<]+)<\/td>/;
+    const eventTimeRegex = /Time:<\/td><td>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})<\/td>/;
+    const eventDescriptionRegex = /Event description:<\/td><td>([^<]+)<\/td>/;
 
-    if (match) {
+    const inverterIdMatch = emailHtml.match(inverterIdRegex);
+    const plantNameMatch = emailHtml.match(plantNameRegex);
+    const eventTimeMatch = emailHtml.match(eventTimeRegex);
+    const eventDescriptionMatch = emailHtml.match(eventDescriptionRegex);
+
+    if (inverterIdMatch && plantNameMatch && eventTimeMatch && eventDescriptionMatch) {
+        // Extrai os valores do segundo grupo de captura de cada regex
+        const inverterId = inverterIdMatch[1].trim();
+        const plantName = plantNameMatch[1].trim();
+        const eventTimeStr = eventTimeMatch[1].trim();
+        const eventDescription = eventDescriptionMatch[1].trim();
+
+        let alarmType = "GROWATT-EMAIL-EVENT";
+        let severity = "critical"; // Default para "critical" ou outra lógica se desejar
+
+        // Exemplo de lógica para determinar a severidade ou tipo com base na descrição
+        // Você pode expandir isso conforme necessário para mapear eventos específicos para severidades.
+        if (eventDescription.includes("Outrange") || eventDescription.includes("Fault")) {
+            severity = "high";
+        } else if (eventDescription.includes("Warning")) {
+            severity = "medium";
+        }
+        // ... adicione mais regras se necessário
+
         return {
-            inverterId: match[1].trim(),
-            plantName: match[2].trim(),
-            eventTimeStr: match[3].trim(),
-            eventDescription: match[5].trim(),
-            alarmType: "GROWATT-EMAIL-EVENT",
-            severity: "CRITICAL"
+            inverterId: inverterId,
+            plantName: plantName,
+            eventTimeStr: eventTimeStr,
+            eventDescription: eventDescription,
+            alarmType: alarmType,
+            severity: severity
         };
     }
+    console.warn(`[${getFormattedTimestamp()}] WARN: Não foi possível extrair todos os detalhes do alarme Growatt do HTML. Verifique o formato do e-mail.`);
     return null;
 }
 
@@ -63,3 +91,4 @@ module.exports = {
     parseGrowattEmail,
     parseSolarmanEmail,
 };
+
