@@ -1,5 +1,8 @@
-// server.js
+// web_server.js
 const express = require('express');
+const fs = require('fs');
+//const bodyParser = require('body-parser'); // Para parsear o JSON do Telegram
+const { sendTelegramMessage, init: initTelegramNotifier } = require('./telegramNotifier');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
@@ -14,6 +17,14 @@ try {
     console.error(error.message);
     process.exit(1);
 }
+
+// --- CORREÇÃO AQUI: Use 'chatId' do credentials.json ---
+// Renomeei a variável para 'adminChatId' para maior clareza de propósito,
+// mas o importante é que ela leia 'credentials.telegram.chatId'.
+const adminChatId = credentials.telegram.chatId;
+initTelegramNotifier(credentials.telegram.botToken, adminChatId); // Passe o adminChatId correto
+console.log(`[${getFormattedTimestamp()}] Telegram Notifier inicializado no web_server.`);
+// --- FIM DA CORREÇÃO ---
 
 // --- MySQL Connection Configuration ---
 const dbConfig = {
@@ -45,6 +56,69 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// --- NOVO ENDPOINT PARA O WEBHOOK DO TELEGRAM ---
+app.post('/telegram-webhook', async (req, res) => {
+    // É uma boa prática responder rapidamente ao Telegram para evitar reenvios.
+    res.sendStatus(200);
+
+    const update = req.body;
+    // console.log('Recebida atualização do Telegram:', JSON.stringify(update, null, 2)); // Para debug
+
+    if (!update || !update.message) {
+        // Ignorar atualizações que não são mensagens (ex: edições de mensagens, callbacks)
+        return;
+    }
+
+    const msg = update.message;
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const userName = msg.from.username;
+    const firstName = msg.from.first_name;
+    const lastName = msg.from.last_name;
+    const messageText = msg.text;
+
+    const logEntry = `[${getFormattedTimestamp()}] CHAT_ID: ${chatId}, USER_ID: ${userId}, USERNAME: ${userName || 'N/A'}, NAME: ${firstName || ''} ${lastName || ''}, MESSAGE: "${messageText}"\n`;
+
+    // --- LOG PARA COLETAR CHAT_IDS ---
+    const CHAT_IDS_LOG_FILE = path.join(__dirname, 'logs', 'received_chat_ids.log');
+    fs.appendFile(CHAT_IDS_LOG_FILE, logEntry, (err) => {
+        if (err) {
+            console.error('Erro ao escrever no arquivo de log de chat_ids:', err);
+        }
+    });
+
+    console.log(`[${getFormattedTimestamp()}] Mensagem recebida de ${firstName || userName || userId} (Chat ID: ${chatId}): "${messageText}"`);
+
+   // --- Lógica para o comando "cadastrar" ---
+    // Verifica se a mensagem de texto existe e contém a palavra "cadastrar" (case-insensitive)
+    if (messageText && typeof messageText === 'string' && messageText.toLowerCase().includes('cadastrar')) {
+        try {
+            // 1. Enviar para o usuário: "Obrigado por se cadastrar."
+            await sendTelegramMessage('Obrigado por se cadastrar. Seu ID de chat foi registrado.', chatId);
+            console.log(`[${getFormattedTimestamp()}] Enviado mensagem de cadastro para ${firstName || userName || userId} (Chat ID: ${chatId}).`);
+
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Espera 1 segundo
+
+            // 2. Enviar para você (adminChatId): CHAT_ID, USER_ID, USERNAME, NAME
+            const adminNotificationMessage =
+                `Novo cadastro de usuário:\n` +
+                `CHAT_ID: <code>${chatId}</code>\n` +
+                `USER_ID: <code>${userId}</code>\n` +
+                `USERNAME: ${userName || 'N/A'}\n` +
+                `NOME: ${firstName || ''} ${lastName || ''}`;
+
+            // Envia para o adminChatId (você)
+            await sendTelegramMessage(adminNotificationMessage, adminChatId); // Agora usa a variável corrigida
+            console.log(`[${getFormattedTimestamp()}] Notificação de novo cadastro enviada para o admin.`);
+
+        } catch (error) {
+            console.error(`[${getFormattedTimestamp()}] Erro ao processar comando 'cadastrar' ou enviar notificação para ${chatId}:`, error.response ? error.response.data : error.message);
+        }
+    }
+    // --- Adicione aqui outras lógicas do seu bot, se necessário ---
+    // Ex: Responder a /start, etc.
+});
 
 // --- Rota da API para obter alarmes ativos ---
 app.get('/api/alarms/active', async (req, res) => {

@@ -15,8 +15,9 @@ const { getFormattedTimestamp } = require('./utils');
  * @param {object} diagnosticLogger - Module for logging diagnostic codes.
  * @param {string} providerType - 'growatt' or 'solarman' (or others).
  * @param {string} customTag - The custom IMAP tag to search for (e.g., 'growatt_alert', 'solarman_alert').
+ * @param {string} adminChatId - O ID do chat do administrador para deduplicação de notificações de proprietários.
  */
-async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogger, providerType, customTag) {
+async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogger, providerType, customTag, adminChatId) {
     let connection;
     let imap;
 
@@ -116,8 +117,26 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                                 );
                                                 const currentAlarmId = insertResult.insertId;
                                                 console.log(`[${getFormattedTimestamp()}] NOVO ALARME REGISTRADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
-                                                await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME (E-MAIL ${providerType.toUpperCase()})</b> 🚨\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nEvento: <b>${eventDescription}</b>`);
+                                                
+                                                // Notificação para o ADMIN
+                                                await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME (E-MAIL ${providerType.toUpperCase()})</b> 🚨\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nEvento: <b>${eventDescription}</b>`, adminChatId);
 
+                                                // Notificação para o PROPRIETÁRIO (se existir e for diferente do ADMIN)
+                                                const [plantInfoRows] = await connection.execute(
+                                                    `SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`,
+                                                    [plantName]
+                                                );
+
+                                                if (plantInfoRows.length > 0 && plantInfoRows[0].owner_chat_id) {
+                                                    const ownerChatId = plantInfoRows[0].owner_chat_id;
+                                                    if (ownerChatId && String(ownerChatId) !== String(adminChatId)) { // Convert to string for strict comparison
+                                                        const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${eventDescription}`;
+                                                        await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                                                        console.log(`[${getFormattedTimestamp()}] Notificação de NOVO ALARME (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);
+                                                    } else if (String(ownerChatId) === String(adminChatId)) {
+                                                        console.log(`[${getFormattedTimestamp()}] Proprietário da planta ${plantName} é o mesmo que o ADMIN, notificação de alarme enviada apenas uma vez.`);
+                                                    }
+                                                }
                                             } else {
                                                 const currentAlarmId = existingActiveAlarms[0].alarm_id;
                                                 await connection.execute(

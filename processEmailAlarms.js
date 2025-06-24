@@ -51,6 +51,7 @@ const imapConfig = {
         console.log(`[${getFormattedTimestamp()}] Pool de conexão MySQL criado para processamento de e-mails.`);
 
         telegramNotifier.init(credentials.telegram.botToken, credentials.telegram.chatId);
+        const adminChatId = credentials.telegram.chatId; // Obtém o ID do chat do administrador
 
         // --- Processamento de e-mails Growatt ---
         console.log(`[${getFormattedTimestamp()}] Iniciando processamento de e-mails Growatt.`);
@@ -60,7 +61,8 @@ const imapConfig = {
             telegramNotifier,
             diagnosticLogger,
             'growatt',
-            'growatt_alert' // <--- Nova tag customizada para Growatt
+            'growatt_alert', // <--- Nova tag customizada para Growatt
+            adminChatId // Passa o ID do chat do administrador
         );
         console.log(`[${getFormattedTimestamp()}] Processamento de e-mails Growatt concluído.`);
 
@@ -72,7 +74,8 @@ const imapConfig = {
             telegramNotifier,
             diagnosticLogger,
             'solarman',
-            'solarman_alert' // <--- Nova tag customizada para Solarman
+            'solarman_alert', // <--- Nova tag customizada para Solarman
+            adminChatId // Passa o ID do chat do administrador
         );
         console.log(`[${getFormattedTimestamp()}] Processamento de e-mails Solarman concluído.`);
 

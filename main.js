@@ -9,6 +9,7 @@ const solarmanApi = require('./solarmanApi'); // NOVO: Importa a API Solarman
 const database = require('./database');
 const alarmManager = require('./alarmManager');
 const telegramNotifier = require('./telegramNotifier');
+const { checkAndManageAlarms } = require('./alarmManager');
 const { getFormattedTimestamp } = require('./utils');
 
 // --- Carrega Credenciais de arquivo externo ---
@@ -156,7 +157,7 @@ async function retrieveAndProcessData() {
 
 
     // --- Gerenciamento de Alarmes ---
-    await alarmManager.checkAndManageAlarms(pool);
+    await checkAndManageAlarms(pool, credentials.telegram.chatId);
     console.log(`[${getFormattedTimestamp()}] Verificação e gerenciamento de alarmes concluído.`);
 
   } catch (error) {

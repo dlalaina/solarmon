@@ -4,8 +4,9 @@ const { getFormattedTimestamp } = require('./utils');
 /**
  * Checks for and manages alarm conditions based on data in solar_data and plant_config.
  * @param {object} pool - The MySQL connection pool.
+ * @param {string} adminChatId - O ID do chat do administrador para deduplicação de notificações de proprietários.
  */
-async function checkAndManageAlarms(pool) {
+async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChatId aqui
     let connection;
     try {
         connection = await pool.getConnection();
@@ -72,9 +73,11 @@ async function checkAndManageAlarms(pool) {
                 ) AS DECIMAL(10,2)) AS greatest_current_string,
                 pc.string_grouping_type,
                 pc.active_strings_config,
-                pc.api_type
+                pc.api_type,
+                pi.owner_chat_id -- Adicionado para pegar o owner_chat_id
             FROM solar_data sd
             JOIN plant_config pc ON sd.plant_name = pc.plant_name AND sd.inverter_id = pc.inverter_id
+            LEFT JOIN plant_info pi ON sd.plant_name = pi.plant_name -- Join para obter owner_chat_id
             WHERE
                 sd.last_update_time >= CURDATE()
                 AND sd.status <> -1
@@ -125,6 +128,7 @@ async function checkAndManageAlarms(pool) {
             const greatestCurrentString = detection.greatest_current_string;
             const stringGroupingType = detection.string_grouping_type;
             const apiType = detection.api_type;
+            const ownerChatId = detection.owner_chat_id; // Obtido da query JOIN
 
             // Obter e validar activeStringsConfig
             let activeStrings = [];
@@ -198,7 +202,14 @@ async function checkAndManageAlarms(pool) {
 				    [plantName, inverterId, alarmType, alarmSeverity, problemDetailsForAlarm, message]
 			        );
 			        console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsForAlarm})`);
+			        // Enviar para o ADMIN
 			        await telegramNotifier.sendTelegramMessage(`🔴 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔴\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+			        // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
+			        if (ownerChatId && ownerChatId !== adminChatId) {
+			            const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A`;
+			            await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+			            console.log(`[${getFormattedTimestamp()}] Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
+			        }
 			    }
 			    stillActiveDetectedKeys.add(alarmKey);
 		        } else {
@@ -359,7 +370,14 @@ async function checkAndManageAlarms(pool) {
 				    [plantName, inverterId, alarmType, alarmSeverity, problemDetailsTwo, message]
 			        );
 			        console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsTwo})`);
+			        // Enviar para o ADMIN
 			        await telegramNotifier.sendTelegramMessage(`🔥 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔥\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+			        // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
+			        if (ownerChatId && ownerChatId !== adminChatId) {
+			            const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
+			            await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+			            console.log(`[${getFormattedTimestamp()}] Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
+			        }
 			    }
 			    stillActiveDetectedKeys.add(alarmKey);
 		        } else {
@@ -401,7 +419,14 @@ async function checkAndManageAlarms(pool) {
 				        [plantName, inverterId, alarmType, alarmSeverity, problemDetailsOne, message]
 				    );
 				    console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsOne})`);
+				    // Enviar para o ADMIN
 				    await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+				    // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
+				    if (ownerChatId && ownerChatId !== adminChatId) {
+				        const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
+				        await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+				        console.log(`[${getFormattedTimestamp()}] Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
+				    }
 			        }
 			        stillActiveDetectedKeys.add(alarmKey);
 			    } else {
@@ -464,7 +489,14 @@ async function checkAndManageAlarms(pool) {
 				        [plantName, inverterId, alarmType, alarmSeverity, halfWorkingProblemDetails, message]
 				    );
 				    console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
+				    // Enviar para o ADMIN
 				    await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+				    // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
+				    if (ownerChatId && ownerChatId !== adminChatId) {
+				        const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A`;
+				        await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+				        console.log(`[${getFormattedTimestamp()}] Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
+				    }
 			        }
 			        stillActiveDetectedKeys.add(alarmKey);
 			    } else {
@@ -496,12 +528,14 @@ async function checkAndManageAlarms(pool) {
                 pc.inverter_id,
                 sd.status,
                 pc.api_type,
-                sd.last_update_time
+                sd.last_update_time,
+                pi.owner_chat_id -- Adicionado para pegar o owner_chat_id
             FROM
                 plant_config pc
             LEFT JOIN
                 solar_data sd ON pc.plant_name = sd.plant_name AND pc.inverter_id = sd.inverter_id
                 AND sd.last_update_time = (SELECT MAX(last_update_time) FROM solar_data WHERE plant_name = pc.plant_name AND inverter_id = pc.inverter_id)
+            LEFT JOIN plant_info pi ON pc.plant_name = pi.plant_name -- Join para obter owner_chat_id
             WHERE
                 (pc.api_type = 'Growatt' AND (sd.last_update_time IS NULL OR sd.last_update_time < NOW() - INTERVAL 30 MINUTE OR sd.status = -1))
                 OR
@@ -516,7 +550,8 @@ async function checkAndManageAlarms(pool) {
             'Inversor está offline ou sem dados recentes (ou status -1).',
             connection,
             activeAlarmsMap,
-            stillActiveDetectedKeys
+            stillActiveDetectedKeys,
+            adminChatId // Passado para processDetections
         );
 
         // --- 3. Process alarms that are no longer detected (i.e., they've cleared) ---
@@ -530,6 +565,13 @@ async function checkAndManageAlarms(pool) {
                 continue;
             }
 
+            // Adicionado ownerChatId aqui para a mensagem de alarme resolvido
+            const [plantInfo] = await connection.execute(
+                `SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`,
+                [alarm.plant_name]
+            );
+            const resolvedOwnerChatId = plantInfo.length > 0 ? plantInfo[0].owner_chat_id : null;
+
             // ALTERAÇÃO: Comparar com os novos nomes 'STRING-DOWN', 'HALF-STRING-WORKING', 'INVERTER-OFFLINE'
             if (alarm.alarm_type === 'STRING-DOWN' || alarm.alarm_type === 'HALF-STRING-WORKING' || alarm.alarm_type === 'INVERTER-OFFLINE') {
                 await connection.execute(
@@ -538,7 +580,14 @@ async function checkAndManageAlarms(pool) {
                 );
                 console.log(`[${getFormattedTimestamp()}] ALARME LIMPO: ${alarm.alarm_type} para Planta: ${alarm.plant_name}, Inversor: ${alarm.inverter_id} (${alarm.problem_details || ''})`);
                 // ALTERAÇÃO: replace do '-' por espaço no Telegram
+                // Enviar para o ADMIN
                 await telegramNotifier.sendTelegramMessage(`✅ <b>ALARME RESOLVIDO: ${alarm.alarm_type.replace(/-/g, ' ')}</b> ✅\nPlanta: <b>${alarm.plant_name}</b>\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`);
+                // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e resolvedOwnerChatId existir)
+                if (resolvedOwnerChatId && resolvedOwnerChatId !== adminChatId) {
+                    const ownerResolvedMessage = `✅ <b>ALARME RESOLVIDO</b> ✅\nSua usina <b>${alarm.plant_name}</b> teve um alarme resolvido:\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`;
+                    await telegramNotifier.sendTelegramMessage(ownerResolvedMessage, resolvedOwnerChatId);
+                    console.log(`[${getFormattedTimestamp()}] Notificação de ALARME RESOLVIDO enviada para o proprietário da Planta: ${alarm.plant_name}.`);
+                }
             } else {
                 await connection.execute(
                     `UPDATE alarms SET cleared_at = NOW() WHERE alarm_id = ?`,
@@ -546,7 +595,14 @@ async function checkAndManageAlarms(pool) {
                 );
                 console.log(`[${getFormattedTimestamp()}] ALARME LIMPO (Genérico): ${alarm.alarm_type} para Planta: ${alarm.plant_name}, Inversor: ${alarm.inverter_id} (${alarm.problem_details || ''})`);
                 // ALTERAÇÃO: replace do '-' por espaço no Telegram
+                // Enviar para o ADMIN
                 await telegramNotifier.sendTelegramMessage(`✅ <b>ALARME RESOLVIDO: ${alarm.alarm_type.replace(/-/g, ' ')}</b> ✅\nPlanta: <b>${alarm.plant_name}</b>\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`);
+                // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e resolvedOwnerChatId existir)
+                if (resolvedOwnerChatId && resolvedOwnerChatId !== adminChatId) {
+                    const ownerResolvedMessage = `✅ <b>ALARME RESOLVIDO</b> ✅\nSua usina <b>${alarm.plant_name}</b> teve um alarme resolvido:\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`;
+                    await telegramNotifier.sendTelegramMessage(ownerResolvedMessage, resolvedOwnerChatId);
+                    console.log(`[${getFormattedTimestamp()}] Notificação de ALARME RESOLVIDO enviada para o proprietário da Planta: ${alarm.plant_name}.`);
+                }
             }
         }
 
@@ -646,6 +702,7 @@ async function checkAndManageAlarms(pool) {
             await connection.rollback();
         }
         console.error(`[${getFormattedTimestamp()}] Erro ao gerenciar alarmes: ${alarmError.message}`);
+        // Enviar para o ADMIN
         await telegramNotifier.sendTelegramMessage(`❌ <b>ERRO NO GERENCIAMENTO DE ALARMES!</b> ❌\nDetalhes: ${alarmError.message}`);
         throw alarmError;
     } finally {
@@ -665,8 +722,9 @@ async function checkAndManageAlarms(pool) {
  * @param {mysql.Connection} connection - The MySQL database connection.
  * @param {Map} activeAlarmsMap - Map of currently active alarms.
  * @param {Set} stillActiveDetectedKeys - Set to track alarms still active.
+ * @param {string} adminChatId - O ID do chat do administrador para deduplicação de notificações de proprietários.
  */
-async function processDetections(detections, alarmType, problemDetails, alarmSeverity, message, connection, activeAlarmsMap, stillActiveDetectedKeys) {
+async function processDetections(detections, alarmType, problemDetails, alarmSeverity, message, connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId) {
     for (const detection of detections) {
         // ALTERAÇÃO: Chave do mapa agora usa o alarmType com hífens
         const key = `${detection.plant_name}_${detection.inverter_id}_${alarmType}_${problemDetails || ''}`;
@@ -678,7 +736,14 @@ async function processDetections(detections, alarmType, problemDetails, alarmSev
             );
             console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${detection.plant_name}, Inversor: ${detection.inverter_id} (${problemDetails || ''})`);
             // ALTERAÇÃO: replace do '-' por espaço no Telegram
+            // Enviar para o ADMIN
             await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🚨\nPlanta: <b>${detection.plant_name}</b>\nInversor: <b>${detection.inverter_id}</b>\nDetalhes: ${problemDetails || 'N/A'}\n<i>${message}</i>`);
+            // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e owner_chat_id existir)
+            if (detection.owner_chat_id && detection.owner_chat_id !== adminChatId) {
+                const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${detection.plant_name}</b> está com um alerta:\nInversor: <b>${detection.inverter_id}</b>\nDetalhes: ${problemDetails || 'N/A'}\n<i>${message}</i>`;
+                await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, detection.owner_chat_id);
+                console.log(`[${getFormattedTimestamp()}] Notificação de ALARME enviada para o proprietário da Planta: ${detection.plant_name}.`);
+            }
         }
         stillActiveDetectedKeys.add(key);
     }
