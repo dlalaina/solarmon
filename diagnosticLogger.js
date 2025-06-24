@@ -20,7 +20,7 @@ async function captureAndSaveDiagnosticCodes(connection, plantName, inverterId, 
                 fault_type, pto_status, bdc_status
             FROM solar_data
             WHERE plant_name = ? AND inverter_id = ?
-            ORDER BY timestamp DESC
+            ORDER BY last_update_time DESC
             LIMIT 1`,
             [plantName, inverterId]
         );

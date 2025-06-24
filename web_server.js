@@ -18,8 +18,7 @@ try {
     process.exit(1);
 }
 
-// --- CONFIGURAÇÃO JWT (AGORA DO credentials.json) ---
-// Certifique-se de que a seção 'auth' existe em seu credentials.json
+// --- CONFIGURAÇÃO JWT ---
 const JWT_SECRET = credentials.auth.jwtSecret;
 const ADMIN_USERNAME = credentials.auth.adminUsername;
 const ADMIN_PASSWORD = credentials.auth.adminPassword;
@@ -342,8 +341,9 @@ app.post('/api/clear-alarm/:alarmId', authenticateToken, async (req, res) => {
         connection = await pool.getConnection();
         await connection.beginTransaction();
 
+        // 1. Obter detalhes do alarme ANTES de limpá-lo, incluindo 'cleared_at'
         const [alarms] = await connection.execute(
-            `SELECT alarm_id, alarm_type, cleared_at FROM alarms WHERE alarm_id = ? FOR UPDATE`,
+            `SELECT alarm_id, plant_name, inverter_id, alarm_type, problem_details, message, cleared_at FROM alarms WHERE alarm_id = ? FOR UPDATE`,
             [alarmId]
         );
 
@@ -352,19 +352,15 @@ app.post('/api/clear-alarm/:alarmId', authenticateToken, async (req, res) => {
             return res.status(404).json({ message: 'Alarme não encontrado.' });
         }
 
-        const alarm = alarms[0];
+        const alarmToClear = alarms[0];
 
-        // REMOVIDO: A restrição de tipo de alarme para limpar
-        // if (alarm.alarm_type !== 'GROWATT-EMAIL-EVENT') {
-        //     await connection.rollback();
-        //     return res.status(400).json({ message: 'Apenas alarmes do tipo GROWATT-EMAIL-EVENT podem ser limpos por esta rota via botão.' });
-        // }
-
-        if (alarm.cleared_at !== null) {
+        // Verificação de alarme já limpo agora é precisa
+        if (alarmToClear.cleared_at !== null) {
             await connection.rollback();
             return res.status(400).json({ message: 'Alarme já está limpo.' });
         }
 
+        // 2. Limpar o alarme no banco de dados
         const [updateResult] = await connection.execute(
             `UPDATE alarms SET cleared_at = NOW(), cleared_by = ? WHERE alarm_id = ?`,
             ['Manual Web', alarmId]
@@ -375,8 +371,35 @@ app.post('/api/clear-alarm/:alarmId', authenticateToken, async (req, res) => {
             return res.status(500).json({ message: 'Nenhum alarme foi atualizado (pode já ter sido limpo por outro processo).' });
         }
 
+        // 3. Enviar notificação de alarme resolvido para o ADMIN
+        const adminResolveMessage = `✅ <b>ALARME RESOLVIDO</b> ✅\n` +
+                                     `ID: <b>${alarmToClear.alarm_id}</b>\n` +
+                                     `Tipo: <b>${alarmToClear.alarm_type.replace(/-/g, ' ')}</b>\n` +
+                                     `Planta: <b>${alarmToClear.plant_name}</b>\n` +
+                                     `Inversor: <b>${alarmToClear.inverter_id}</b>\n` +
+                                     `Detalhes: ${alarmToClear.problem_details || 'N/A'}`;
+        await sendTelegramMessage(adminResolveMessage, adminChatId);
+        console.log(`[${getFormattedTimestamp()}] Notificação de alarme resolvido enviada para o admin (Alarme ID: ${alarmId}).`);
+
+        // 4. Enviar notificação para o PROPRIETÁRIO (se existir e for diferente do ADMIN)
+        const [plantInfoRows] = await connection.execute(
+            `SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`,
+            [alarmToClear.plant_name]
+        );
+
+        if (plantInfoRows.length > 0 && plantInfoRows[0].owner_chat_id) {
+            const ownerChatId = plantInfoRows[0].owner_chat_id;
+            if (ownerChatId && String(ownerChatId) !== String(adminChatId)) {
+                const ownerResolveMessage = `✅ O alarme para sua usina <b>${alarmToClear.plant_name}</b> (Inversor: <b>${alarmToClear.inverter_id}</b>) foi RESOLVIDO.`;
+                await sendTelegramMessage(ownerResolveMessage, ownerChatId);
+                console.log(`[${getFormattedTimestamp()}] Notificação de alarme resolvido enviada para o proprietário da Planta: ${alarmToClear.plant_name} (Alarme ID: ${alarmId}).`);
+            } else if (String(ownerChatId) === String(adminChatId)) {
+                console.log(`[${getFormattedTimestamp()}] Proprietário da planta ${alarmToClear.plant_name} é o mesmo que o ADMIN, notificação de alarme resolvido enviada apenas uma vez.`);
+            }
+        }
+
         await connection.commit();
-        console.log(`[${getFormattedTimestamp()}] Alarme ID ${alarmId} do tipo '${alarm.alarm_type}' limpo manualmente via web.`); // Log mais genérico
+        console.log(`[${getFormattedTimestamp()}] Alarme ID ${alarmId} do tipo '${alarmToClear.alarm_type}' limpo manualmente via web.`);
         res.json({ message: 'Alarme limpo com sucesso!', alarmId: alarmId });
 
     } catch (error) {
