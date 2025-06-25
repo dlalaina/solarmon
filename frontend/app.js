@@ -440,6 +440,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // NOVO CÓDIGO PARA REFRESH AUTOMÁTICO
     setTimeout(() => {
         location.reload();
-    }, 60 * 1000);
+    }, 180 * 1000);
 });
 
