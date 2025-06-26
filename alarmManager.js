@@ -1,6 +1,9 @@
 const telegramNotifier = require('./telegramNotifier');
 const { getFormattedTimestamp } = require('./utils');
 
+// Constante para definir o período de carência (em minutos) após a recuperação do servidor Growatt
+const GROWATT_RECOVERY_GRACE_PERIOD_MINUTES = 18; // 18 minutos = 3 ciclos de 5min após o servidor voltar
+
 /**
  * Checks for and manages alarm conditions based on data in solar_data and plant_config.
  * @param {object} pool - The MySQL connection pool.
@@ -437,6 +440,7 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 			    if (consecutiveCountsMap.has(consecutiveKeyOne) && consecutiveCountsMap.get(consecutiveKeyOne) > 0) {
 			        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para MPPT-ONE-STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Condição não atendida).`);
 			        consecutiveCountsMap.set(consecutiveKeyOne, 0);
+    
 			        const alarmKeyToClear = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
 			        if (activeAlarmsMap.has(alarmKeyToClear)) {
 				    console.log(`[${getFormattedTimestamp()}] Condição de MPPT-ONE-STRING-DOWN resolvida para ${plantName} - ${inverterId} - ${problemDetailsOne}. Será limpo no final.`);
@@ -522,6 +526,14 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
         } // Fim do loop principal for dayIpvAlarms
 
         // --- 2b. Inverter Offline Alarms ---
+        // NOVO: Busque o status do servidor Growatt para aplicar o período de carência
+        const [growattServerStatusRows] = await connection.execute(`
+            SELECT recovery_grace_period_until
+            FROM growatt_server_status
+            WHERE id = 1
+        `);
+        const growattGracePeriodUntil = growattServerStatusRows.length > 0 ? growattServerStatusRows[0].recovery_grace_period_until : null;
+
         const [inverterOfflineAlarms] = await connection.execute(`
             SELECT
                 pc.plant_name,
@@ -541,9 +553,23 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
                 OR
                 (pc.api_type = 'Solarman' AND sd.status = -1)
         `);
+
+        const filteredInverterOfflineAlarms = [];
+        const now = new Date();
+
+        for (const detection of inverterOfflineAlarms) {
+            if (detection.api_type === 'Growatt' && growattGracePeriodUntil && now < growattGracePeriodUntil) {
+                // Estamos em período de carência para Growatt, não gere alarme offline
+                console.log(`[${getFormattedTimestamp()}] INVERSOR OFFLINE (Growatt) ignorado durante período de carência para Planta: ${detection.plant_name}, Inversor: ${detection.inverter_id}. Carência termina em: ${growattGracePeriodUntil.toLocaleString()}.`);
+            } else {
+                // Adiciona o alarme se não for Growatt ou se o período de carência já passou
+                filteredInverterOfflineAlarms.push(detection);
+            }
+        }
+
         // ALTERAÇÃO: Passar alarmType como 'INVERTER-OFFLINE'
         await processDetections(
-            inverterOfflineAlarms,
+            filteredInverterOfflineAlarms, // Usar a lista filtrada
             'INVERTER-OFFLINE', // ALTERAÇÃO: de INVERTER_OFFLINE para INVERTER-OFFLINE
             'Inversor Offline', // problemDetails para INVERTER-OFFLINE
             'Critical',
@@ -608,68 +634,6 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 
         // --- Persistir contagens consecutivas atualizadas ---
         for (const [key, count] of consecutiveCountsMap.entries()) {
-            // ALTERAÇÃO: Nova lógica de extração das partes da chave para lidar com '-'
-            // Exemplo de chave: TOORU-PGA2_JTM4D4V00P_STRING-DOWN_String 7 (Fora)
-            const parts = key.split('_');
-
-            if (parts.length < 4) { // Espera pelo menos 4 partes: plant_name, inverter_id, alarm_type, problem_details
-                console.warn(`[${getFormattedTimestamp()}] Chave de contagem consecutiva mal formatada para persistência: ${key}. Pulando.`);
-                continue;
-            }
-
-            const plantName = parts[0];
-            const inverterId = parts[1];
-            // O alarm_type agora pode ter hífens, mas não underscores (que são os delimitadores principais)
-            // problem_details pode ter qualquer coisa, incluindo hífens e underscores
-            // A melhor forma é pegar os dois primeiros e o resto como "alarm_type_problem_details_restante"
-            // E depois encontrar o ÚLTIMO UNDERCORE no restante para separar alarm_type do problem_details.
-
-            const remainingParts = parts.slice(2); // Pega as partes que contêm alarm_type e problem_details
-            
-            // Encontra o índice do ÚLTIMO '_' no array remainingParts que indica a separação final
-            // Ex: ['STRING-DOWN', 'String 7 (Fora)'] => last underscore is in between
-            // Ex: ['HALF-STRING-WORKING', 'MPPT 1 (Strings 1,2,3) Metade Fora']
-            let alarmType = '';
-            let problemDetails = '';
-
-            // Se há mais de 1 parte no remainingParts, a última é o problemDetails
-            if (remainingParts.length > 1) {
-                problemDetails = remainingParts[remainingParts.length - 1];
-                alarmType = remainingParts.slice(0, remainingParts.length - 1).join('_'); // Junta o resto, pode ter sido quebrado por underscore
-            } else { // Caso só tenha uma parte (ex: "INVERTER-OFFLINE_Inversor Offline")
-                const lastHyphenIndex = remainingParts[0].lastIndexOf('-');
-                if (lastHyphenIndex !== -1) {
-                    alarmType = remainingParts[0].substring(0, lastHyphenIndex);
-                    problemDetails = remainingParts[0].substring(lastHyphenIndex + 1);
-                } else {
-                    alarmType = remainingParts[0]; // Sem detalhes, ou tipo sem hífen
-                    problemDetails = ''; // Ou definir como uma string padrão vazia
-                }
-            }
-
-
-            // CORREÇÃO FINAL SIMPLES: A chave foi construída como plant_inverter_alarmType_problemDetails
-            // Onde alarmType já foi definido com hífens.
-            // Então o split original por '_' ainda funciona, precisamos apenas remontar alarmType
-            // E tratar problemDetails como a última parte.
-            // A forma mais direta é:
-            const problemDetailsStartIndex = key.indexOf(parts[2]); // A partir de onde alarmType começa
-            const problemDetailsActual = key.substring(key.indexOf('_', key.indexOf('_') + 1) + 1); // Tudo após o segundo underscore
-            
-            // A nova estratégia será mais simples: a chave é `plant_inverter_ALARM_TYPE-PROBLEM_DETAILS_Problem Details`
-            // Não, a chave é `plant_inverter_ALARM-TYPE_Problem Details`
-            // Então, separamos por `_` duas vezes e o restante é o `ALARM-TYPE_Problem Details`
-            // E dentro desse restante, o último `_` é o separador.
-
-            // Re-evaluating the key structure and parsing.
-            // The key is always `${plantName}_${inverterId}_${alarmType}_${problemDetails}`
-            // where alarmType is e.g. "STRING-DOWN" or "HALF-STRING-WORKING"
-            // and problemDetails is e.g. "String 7 (Fora)" or "MPPT 1 (Strings 1,2,3) Metade Fora"
-
-            // Let's use the simplest and most robust approach:
-            // Find the last underscore for problemDetails.
-            // Find the second to last underscore for alarmType.
-
             const finalProblemDetailsLastUnderscoreIndex = key.lastIndexOf('_');
             const finalProblemDetails = key.substring(finalProblemDetailsLastUnderscoreIndex + 1);
 
@@ -752,3 +716,4 @@ async function processDetections(detections, alarmType, problemDetails, alarmSev
 module.exports = {
     checkAndManageAlarms,
 };
+

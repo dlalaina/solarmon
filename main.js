@@ -53,6 +53,56 @@ async function getPlantConfig(dbPool) {
     }
 }
 
+// NOVO: Função para atualizar o status do servidor Growatt no banco de dados
+async function updateGrowattServerStatus(dbPool, isSuccess) {
+    let connection;
+    try {
+        connection = await dbPool.getConnection();
+        await connection.beginTransaction();
+
+        const GROWATT_RECOVERY_GRACE_PERIOD_MINUTES = 18; // Deve ser a mesma constante definida em alarmManager.js
+
+        if (isSuccess) {
+            // Se a chamada à API da Growatt foi bem-sucedida
+            await connection.execute(`
+                INSERT INTO growatt_server_status (id, last_successful_api_call, last_api_status, recovery_grace_period_until)
+                VALUES (1, NOW(), 'OK', NULL)
+                ON DUPLICATE KEY UPDATE
+                    last_successful_api_call = NOW(),
+                    last_api_status = 'OK',
+                    recovery_grace_period_until = CASE
+                        WHEN last_api_status = 'ERROR' THEN NOW() + INTERVAL ? MINUTE
+                        ELSE recovery_grace_period_until
+                    END;
+            `, [GROWATT_RECOVERY_GRACE_PERIOD_MINUTES]);
+            console.log(`[${getFormattedTimestamp()}] Status do servidor Growatt atualizado para SUCESSO.`);
+        } else {
+            // Se a chamada à API da Growatt falhou
+            await connection.execute(`
+                INSERT INTO growatt_server_status (id, last_successful_api_call, last_api_status, recovery_grace_period_until)
+                VALUES (1, NULL, 'ERROR', NULL)
+                ON DUPLICATE KEY UPDATE
+                    last_api_status = 'ERROR',
+                    recovery_grace_period_until = NULL;
+            `);
+            console.error(`[${getFormattedTimestamp()}] Status do servidor Growatt atualizado para ERRO.`);
+        }
+
+        await connection.commit();
+    } catch (error) {
+        if (connection) {
+            await connection.rollback();
+        }
+        console.error(`[${getFormattedTimestamp()}] Erro ao atualizar o status do servidor Growatt no banco de dados:`, error.message);
+        // Não relança o erro aqui para não parar o fluxo principal,
+        // mas é importante logá-lo.
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+}
+
 
 // Função principal de recuperação e processamento de dados
 async function retrieveAndProcessData() {
@@ -62,34 +112,46 @@ async function retrieveAndProcessData() {
 
     // --- Busca de Dados GROWATT ---
     console.log(`[${getFormattedTimestamp()}] Iniciando busca de dados Growatt...`);
-    const growatt = await growattApi.login(credentials.growatt.user, credentials.growatt.password);
-    console.log(`[${getFormattedTimestamp()}] Login Growatt realizado com sucesso.`);
-
-    const growattOptions = {
-      plantData: true,
-      deviceData: true,
-      deviceType: true,
-      weather: false,
-      chartLastArray: true,
-    };
-    const getAllPlantDataRaw = await growattApi.getAllPlantData(growatt, growattOptions);
-    const growattDataForProcessing = { plants: getAllPlantDataRaw };
-
-    const growattFullFilePath = path.join(raw_data_dir, `growatt_full_${require('./utils').getFormattedDateForFilename()}.json`);
-    await fs.writeFile(growattFullFilePath, JSON.stringify(growattDataForProcessing, null, ' '));
-    console.log(`[${getFormattedTimestamp()}] Dados brutos Growatt salvos em ${growattFullFilePath}`);
-
-    // Inserir dados Growatt no MySQL
-    await database.insertDataIntoMySQL(pool, growattDataForProcessing);
-    console.log(`[${getFormattedTimestamp()}] Dados Growatt inseridos/atualizados no MySQL.`);
+    let growattApiSuccess = false; // Flag para rastrear o sucesso da API Growatt
 
     try {
-      await growattApi.logout(growatt);
-      console.log(`[${getFormattedTimestamp()}] Logout Growatt realizado com sucesso.`);
-    } catch (logoutError) {
-      console.warn(`[${getFormattedTimestamp()}] Falha ao deslogar da Growatt:`, logoutError.message);
+        const growatt = await growattApi.login(credentials.growatt.user, credentials.growatt.password);
+        console.log(`[${getFormattedTimestamp()}] Login Growatt realizado com sucesso.`);
+
+        const growattOptions = {
+            plantData: true,
+            deviceData: true,
+            deviceType: true,
+            weather: false,
+            chartLastArray: true,
+        };
+        const getAllPlantDataRaw = await growattApi.getAllPlantData(growatt, growattOptions);
+        const growattDataForProcessing = { plants: getAllPlantDataRaw };
+
+        const growattFullFilePath = path.join(raw_data_dir, `growatt_full_${require('./utils').getFormattedDateForFilename()}.json`);
+        await fs.writeFile(growattFullFilePath, JSON.stringify(growattDataForProcessing, null, ' '));
+        console.log(`[${getFormattedTimestamp()}] Dados brutos Growatt salvos em ${growattFullFilePath}`);
+
+        // Inserir dados Growatt no MySQL
+        await database.insertDataIntoMySQL(pool, growattDataForProcessing);
+        console.log(`[${getFormattedTimestamp()}] Dados Growatt inseridos/atualizados no MySQL.`);
+
+        try {
+            await growattApi.logout(growatt);
+            console.log(`[${getFormattedTimestamp()}] Logout Growatt realizado com sucesso.`);
+        } catch (logoutError) {
+            console.warn(`[${getFormattedTimestamp()}] Falha ao deslogar da Growatt:`, logoutError.message);
+        }
+        growattApiSuccess = true; // Marca como sucesso
+    } catch (growattError) {
+        console.error(`[${getFormattedTimestamp()}] Erro durante a busca de dados Growatt:`, growattError.message);
+        growattApiSuccess = false; // Marca como falha
+        // Não relança o erro aqui para permitir o processamento Solarman e o gerenciamento de alarmes.
+    } finally {
+        // NOVO: Atualiza o status do servidor Growatt no DB, independentemente do sucesso
+        await updateGrowattServerStatus(pool, growattApiSuccess);
+        console.log(`[${getFormattedTimestamp()}] Busca de dados Growatt concluída.`);
     }
-    console.log(`[${getFormattedTimestamp()}] Busca de dados Growatt concluída.`);
 
     // --- Busca de Dados SOLARMAN --- NOVO BLOCO
     console.log(`[${getFormattedTimestamp()}] Iniciando busca de dados Solarman...`);
@@ -186,7 +248,7 @@ async function retrieveAndProcessData() {
   } catch (error) {
     console.error(`[${getFormattedTimestamp()}] Erro fatal na execução:`, error.message);
     await fs.writeFile(path.join(logs_dir, 'error.log'), `[${getFormattedTimestamp()}] Erro fatal: ${error.stack}\n`, { flag: 'a' });
-    await telegramNotifier.sendTelegramMessage(`🔥 <b>ERRO CRÍTICO NA EXECUÇÃO DO SCRIPT!</b> 🔥\nDetalhes: ${error.message}\nVerifique o log para mais informações.`);
+    await telegramNotifier.sendTelegramMessage(`🔥 <b>ERRO CRÍTICO NA EXECUÇÃO DO SCRIPT!</b> 🔥\nDetalhes: ${error.message}\\nVerifique o log para mais informações.`);
   } finally {
     if (pool) {
       await pool.end();
@@ -195,3 +257,4 @@ async function retrieveAndProcessData() {
     console.timeEnd('Execução total');
   }
 })();
+
