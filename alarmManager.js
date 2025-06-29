@@ -30,12 +30,11 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
             activeAlarmsMap.set(alarmKey, alarm);
         });
 
-        // CORRIGIDO: stillActiveDetectedKeys AGORA COMEÇA VAZIO.
+        // stillActiveDetectedKeys COMEÇA VAZIO.
         // Alarmes serão adicionados a este Set APENAS se forem detectados na execução atual.
         const stillActiveDetectedKeys = new Set();
-        // A lógica de preenchimento inicial de activeAlarmsMap acima está correta,
-        // mas stillActiveDetectedKeys DEVE começar vazio para que a lógica de limpeza funcione.
 
+        // Esta é a declaração e população CORRETA de consecutiveCountsMap.
         const [consecutiveCountsRows] = await connection.execute(
             `SELECT plant_name, inverter_id, alarm_type, consecutive_count, problem_details
              FROM consecutive_alarm_counts
@@ -123,8 +122,6 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
         });
         // --- Fim do bloco de preparação dos dados ---
 
-        // A query para consecutiveCountsRows já está atualizada acima para incluir os novos tipos de alarme na cláusula WHERE.
-
         // --- Loop principal de detecção e gerenciamento de alarmes ---
         for (const detection of dayIpvAlarms) {
             const plantName = detection.plant_name;
@@ -188,7 +185,7 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 		    console.warn(`[${getFormattedTimestamp()}] Dados de currentString${stringNum} não encontrados para Inversor: ${inverterId} na Planta: ${plantName}, apesar de estar em active_strings_config. Pulando esta string.`);
 		    continue;
 	        }
-    
+            
 	        // --- CONDIÇÃO CHAVE: Só checa STRING-DOWN se o inversor estiver produzindo ativamente ---
 	        if (greatestCurrentString > 8.0) { // O inversor está produzindo o suficiente para a análise
 		    if (stringCurrentValue <= 0.5) { // A string está com produção próxima de zero
@@ -224,11 +221,9 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 		        // Isso significa que a condição de STRING-DOWN não é mais atendida. Reseta a contagem.
 		        if (consecutiveCount_SD > 0) {
 			    console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (String produziu acima de 0.5A).`);
-			    consecutiveCountsMap.set(consecutiveKey_SD, 0);
+			    consecutiveCountsMap.set(consecutiveKey_SD, 0); // Ocorre apenas se string voltar a produzir
     
 			    const alarmKeyToClear = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
-			    // O alarme STRING-DOWN DEVE ser removido de stillActiveDetectedKeys se a condição não for mais atendida
-			    // Isso é implicitamente tratado se stillActiveDetectedKeys começar vazio e só for populado com alarmes ATUALMENTE DETECTADOS.
 			    if (activeAlarmsMap.has(alarmKeyToClear)) {
 			        console.log(`[${getFormattedTimestamp()}] Condição de STRING-DOWN resolvida para ${plantName} - ${inverterId} - ${problemDetailsForAlarm}. Será limpo no final.`);
 			    }
@@ -236,31 +231,16 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 		    }
 	        } else {
 		    // --- SE greatestCurrentString <= 8.0 (Inversor não está produzindo o suficiente) ---
-		    // A contagem consecutiva DEVE ser zerada se o inversor não está em condições de analisar a string.
-		    if (consecutiveCount_SD > 0) {
+		    // A contagem consecutiva DEVE ser zerada aqui.
+		    if (consecutiveCount_SD > 0) { 
 		        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral. Contagem zerada).`);
 		        consecutiveCountsMap.set(consecutiveKey_SD, 0);
 		    }
 
-            // Se o alarme STRING-DOWN para esta string já estiver ativo,
-            // e o inversor estiver com baixa produção geral, não o limpe.
-            // Mantenha-o na lista de ativos detectados para que não seja removido.
-            const alarmKeyForProblemDetails = `String ${stringNum} (Fora)`; // Default problem details
-            let problemDetailsKeyForExistingAlarm = alarmKeyForProblemDetails;
-
-            if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
-                const mpptToStringsMap = {
-                    1: '1,2,3', 2: '4,5,6', 3: '7,8,9', 4: '10,11,12',
-                };
-                const mappedStrings = mpptToStringsMap[stringNum] || `MPPT ${stringNum}`;
-                problemDetailsKeyForExistingAlarm = `MPPT ${stringNum} (Strings ${mappedStrings}) Fora`;
-            }
-            
-            const alarmKey_SD_Full = `${plantName}_${inverterId}_${alarmType}_${problemDetailsKeyForExistingAlarm}`;
-
-            // Se o alarme STRING-DOWN para esta string/MPPT já existe no DB,
-            // e o inversor está em baixa produção, adicioná-lo ou mantê-lo como ativo detectado
-            // para evitar que seja limpo erroneamente.
+            // SE o alarme STRING-DOWN para esta string já estiver ativo (vindo do DB),
+            // e o inversor estiver com baixa produção geral, ADICIONAR a stillActiveDetectedKeys.
+            // Isso o mantém ativo e impede a limpeza automática.
+            const alarmKey_SD_Full = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
             if (activeAlarmsMap.has(alarmKey_SD_Full)) {
                 stillActiveDetectedKeys.add(alarmKey_SD_Full);
                 console.log(`[${getFormattedTimestamp()}] Mantendo alarme STRING-DOWN ativo para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
@@ -293,9 +273,9 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 	        let consecutiveCount_OSD = consecutiveCountsMap.get(consecutiveKeyOne) || 0;
 	        let consecutiveCount_TSD = consecutiveCountsMap.get(consecutiveKeyTwo) || 0;
 	        let consecutiveCount_HSW = consecutiveCountsMap.get(consecutiveKey_HSW) || 0;
-    
+
 	        if (greatestCurrentString < 13.0) { // Inverter not producing enough for MPPT partial fault analysis
-		    // A contagem consecutiva DEVE ser zerada se o inversor não está em condições de analisar o MPPT/string.
+		    // A contagem consecutiva DEVE ser zerada aqui.
 		    if (consecutiveCount_OSD > 0) {
 		        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para MPPT-ONE-STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo. Contagem zerada).`);
 		        consecutiveCountsMap.set(consecutiveKeyOne, 0);
@@ -309,8 +289,9 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 		        consecutiveCountsMap.set(consecutiveKey_HSW, 0);
 		    }
 
-            // Se o alarme já estiver ativo no banco de dados, adicione-o a stillActiveDetectedKeys
-            // para evitar que seja limpo erroneamente devido à baixa produção geral.
+            // SE o alarme já estiver ativo no banco de dados (vindo do DB),
+            // e o inversor estiver com baixa produção geral, ADICIONAR a stillActiveDetectedKeys.
+            // Isso o mantém ativo e impede a limpeza automática.
             const alarmKeyOne = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
             if (activeAlarmsMap.has(alarmKeyOne)) {
                 stillActiveDetectedKeys.add(alarmKeyOne);
@@ -378,7 +359,7 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 			        );
 			        console.log(`[${getFormattedTimestamp()}] NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsTwo})`);
 			        // Enviar para o ADMIN
-			        await telegramNotifier.sendTelegramMessage(`🔥 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> �\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+			        await telegramNotifier.sendTelegramMessage(`🔥 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔥\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
 			        // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
 			        if (ownerChatId && ownerChatId !== adminChatId) {
 			            const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
@@ -445,11 +426,9 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 			    // Se "Uma string fora" não foi detectado NESTE CICLO, reseta sua contagem
 			    if (consecutiveCountsMap.has(consecutiveKeyOne) && consecutiveCountsMap.get(consecutiveKeyOne) > 0) {
 			        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para MPPT-ONE-STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Condição não atendida).`);
-			        consecutiveCountsMap.set(consecutiveKeyOne, 0);
+			        consecutiveCountsMap.set(consecutiveKeyOne, 0); // Ocorre apenas se MPPT voltar a produzir
     
 			        const alarmKeyToClear = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
-			        // O alarme MPPT-ONE-STRING-DOWN DEVE ser removido de stillActiveDetectedKeys se a condição não for mais atendida
-			        // Isso é implicitamente tratado se stillActiveDetectedKeys começar vazio.
 			        if (activeAlarmsMap.has(alarmKeyToClear)) {
 				    console.log(`[${getFormattedTimestamp()}] Condição de MPPT-ONE-STRING-DOWN resolvida para ${plantName} - ${inverterId} - ${problemDetailsOne}. Será limpo no final.`);
 			        }
@@ -512,11 +491,9 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 		        } else { // Condition HALF-STRING-WORKING NOT met
 			    if (consecutiveCount_HSW > 0) {
 			        console.log(`[${getFormattedTimestamp()}] Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Condição não atendida).`);
-			        consecutiveCountsMap.set(consecutiveKey_HSW, 0);
+			        consecutiveCountsMap.set(consecutiveKey_HSW, 0); // Ocorre apenas se string voltar a produzir
     
 			        const alarmKeyToClear = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
-			        // O alarme HALF-STRING-WORKING DEVE ser removido de stillActiveDetectedKeys se a condição não for mais atendida
-			        // Isso é implicitamente tratado se stillActiveDetectedKeys começar vazio.
 			        if (activeAlarmsMap.has(alarmKeyToClear)) {
 				    console.log(`[${getFormattedTimestamp()}] Condição de HALF-STRING-WORKING resolvida para ${plantName} - ${inverterId} - ${halfWorkingProblemDetails}. Será limpo no final.`);
 			        }
@@ -586,7 +563,7 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 
         // --- 3. Process alarms that are no longer detected (i.e., they've cleared) ---
         for (const [alarmKey, alarm] of activeAlarmsMap.entries()) {
-            // Se o alarme ainda está na lista de "ainda ativos" detectados, ou se é um alarme de email event, PULE a limpeza automática.
+            // Se o alarme ainda está na lista de "ainda ativos" detectados (pela lógica acima), ou se é um alarme de email event, PULE a limpeza automática.
             if (stillActiveDetectedKeys.has(alarmKey) || alarm.alarm_type.endsWith('-EMAIL-EVENT')) {
                 continue; 
             }
@@ -627,46 +604,24 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
 
         // --- Persistir contagens consecutivas atualizadas ---
         for (const [key, count] of consecutiveCountsMap.entries()) {
-            // Extrai as partes da chave para o insert/update/delete
+            // Extração de partes da chave mais robusta.
             const parts = key.split('_');
-            // Assumindo que a chave é sempre no formato plant_name_inverter_id_alarm_type_problem_details
-            // e que problem_details pode conter underscores.
-            // Para extrair problem_details: tudo após o terceiro underscore
             const finalPlantName = parts[0];
             const finalInverterId = parts[1];
-            // alarm_type é a terceira parte, e o restante é problem_details.
-            // O alarm_type pode conter hífens, mas o underscore é o delimitador principal.
-            // A chave é sempre construída como `${plantName}_${inverterId}_${alarmType}_${problemDetails || ''}`
-            // Então, problemDetails é tudo após o segundo underscore (contando do início)
-            // e alarmType é a parte entre o primeiro e o segundo underscore.
+            // Encontra o índice do terceiro underscore para garantir que alarmType e problemDetails sejam capturados corretamente
+            const thirdUnderscoreIndex = key.indexOf('_', key.indexOf('_', key.indexOf('_') + 1) + 1);
 
-            // Encontrar o índice do segundo '_'
-            const firstUnderscoreIndex = key.indexOf('_');
-            const secondUnderscoreIndex = key.indexOf('_', firstUnderscoreIndex + 1);
+            let finalAlarmType;
+            let finalProblemDetails;
 
-            let finalAlarmType = '';
-            let finalProblemDetails = '';
-
-            if (secondUnderscoreIndex !== -1) {
-                finalAlarmType = key.substring(firstUnderscoreIndex + 1, secondUnderscoreIndex);
-                finalProblemDetails = key.substring(secondUnderscoreIndex + 1);
+            if (thirdUnderscoreIndex !== -1) {
+                finalAlarmType = key.substring(key.indexOf('_', key.indexOf('_') + 1) + 1, thirdUnderscoreIndex);
+                finalProblemDetails = key.substring(thirdUnderscoreIndex + 1);
             } else {
-                // Caso a chave seja mais simples, como plant_inverter_alarmType
-                finalAlarmType = parts[2] || '';
-                finalProblemDetails = parts[3] || ''; // Pode ser undefined
-            }
-            
-            // Tratamento especial para o caso onde problemDetails está vazio e a chave não tem um terceiro underscore
-            if (finalProblemDetails === '' && parts.length === 3) {
+                // Caso não haja um terceiro underscore, assume-se que problemDetails é vazio
                 finalAlarmType = parts[2];
-                finalProblemDetails = ''; // Assegura que é string vazia
-            } else if (finalProblemDetails === '' && parts.length > 3) {
-                // Isso cobre o caso onde problem_details é vazio mas o terceiro underscore existe
-                // Por exemplo: "PLANT_INVERTER_ALARM_TYPE_"
-                // Neste caso, finalProblemDetails já seria ""
-                // A lógica acima com substring deve lidar com isso.
+                finalProblemDetails = '';
             }
-
 
             if (count > 0) {
                 await connection.execute(
@@ -735,3 +690,4 @@ async function processDetections(detections, alarmType, problemDetails, alarmSev
 module.exports = {
     checkAndManageAlarms,
 };
+
