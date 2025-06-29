@@ -96,7 +96,6 @@ async function checkAndManageAlarms(pool, adminChatId) { // Adicionado adminChat
             LEFT JOIN plant_info pi ON sd.plant_name = pi.plant_name
             WHERE
                 sd.last_update_time >= CURDATE()
-                AND sd.status <> -1
                 AND (
                     COALESCE(sd.currentString1, 0) <= 0.5 OR COALESCE(sd.currentString2, 0) <= 0.5 OR COALESCE(sd.currentString3, 0) <= 0.5 OR COALESCE(sd.currentString4, 0) <= 0.5 OR
                     COALESCE(sd.currentString5, 0) <= 0.5 OR COALESCE(sd.currentString6, 0) <= 0.5 OR COALESCE(sd.currentString7, 0) <= 0.5 OR COALESCE(sd.currentString8, 0) <= 0.5 OR
@@ -690,4 +689,3 @@ async function processDetections(detections, alarmType, problemDetails, alarmSev
 module.exports = {
     checkAndManageAlarms,
 };
-
