@@ -240,7 +240,15 @@ async function insertDataIntoMySQL(pool, data) {
         const values = Object.values(rowData);
         
         await connection.execute(sql, values);
-        console.log(`[${getFormattedTimestamp()}] Inserido/Atualizado dado para Planta: ${plantName}, Inversor: ${deviceId}`);
+
+        // Log aprimorado para incluir status e data de atualização
+        const statusValue = rowData.status;
+        const statusText = statusValue === -1 ? 'OFFLINE'
+                         : statusValue === 0 ? 'ONLINE'
+                         : statusValue === 1 ? 'AGUARDANDO'
+                         : `Desconhecido (${statusValue})`;
+        const updateTimeText = rowData.last_update_time || 'N/A';
+        console.log(`[${getFormattedTimestamp()}] Inserido/Atualizado dado para Planta: ${plantName}, Inversor: ${deviceId} (Status: ${statusText}, Update: ${updateTimeText})`);
       }
     }
     await connection.commit();
