@@ -1,8 +1,8 @@
--- MySQL dump 10.13  Distrib 8.0.36, for Linux (aarch64)
+-- MySQL dump 10.13  Distrib 8.4.5, for Linux (aarch64)
 --
 -- Host: localhost    Database: solarmon
 -- ------------------------------------------------------
--- Server version	8.0.36
+-- Server version	8.4.5
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -14,14 +14,6 @@
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
-
---
--- Current Database: `solarmon`
---
-
-CREATE DATABASE /*!32312 IF NOT EXISTS*/ `solarmon` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
-
-USE `solarmon`;
 
 --
 -- Table structure for table `alarms`
@@ -47,7 +39,7 @@ CREATE TABLE `alarms` (
   `cleared_by` varchar(50) DEFAULT NULL,
   `observation` text,
   PRIMARY KEY (`alarm_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=47 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -125,7 +117,6 @@ CREATE TABLE `plant_config` (
   `plant_name` varchar(50) NOT NULL,
   `inverter_id` varchar(20) NOT NULL,
   `string_grouping_type` varchar(30) DEFAULT NULL,
-  `num_strings` int NOT NULL DEFAULT '3' COMMENT 'Number of PV strings connected to this inverter.',
   `active_strings_config` json DEFAULT NULL,
   `api_type` varchar(50) NOT NULL DEFAULT 'Growatt',
   PRIMARY KEY (`plant_name`,`inverter_id`)
@@ -244,4 +235,4 @@ CREATE TABLE `solar_data` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-06-29 16:21:17
+-- Dump completed on 2025-06-30 16:21:59
