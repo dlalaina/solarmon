@@ -1,5 +1,5 @@
 // emailAlarmParsers.js
-const logger = require('./logger');
+const logger = require('./logger')('email');
 
 /**
  * Parses an email HTML body for Growatt alarm details.

@@ -2,6 +2,7 @@
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
+const logger = require('./logger')('telegram'); // Importa o logger
 
 // Carrega as credenciais do seu arquivo credentials.json
 const credentialsPath = path.join(__dirname, 'credentials.json');
@@ -19,32 +20,32 @@ const WEBHOOK_URL = 'https://solarmon.powerplantsbrazil.com/telegram-webhook'; /
 
 async function setWebhook() {
     if (!botToken || !WEBHOOK_URL) {
-        console.error('Bot Token ou Webhook URL não configurados.');
+        logger.error('Bot Token ou Webhook URL não configurados.');
         return;
     }
 
     const apiUrl = `https://api.telegram.org/bot${botToken}/setWebhook`;
     const params = {
         url: WEBHOOK_URL,
-        // Opcional: max_connections, allowed_updates, etc.
     };
 
     try {
-        console.log(`Tentando definir o webhook para: ${WEBHOOK_URL}`);
+        logger.info(`Tentando definir o webhook para: ${WEBHOOK_URL}`);
         const response = await axios.post(apiUrl, params);
 
         if (response.data.ok) {
-            console.log('Webhook definido com sucesso!');
-            console.log('Informações da resposta:', response.data);
+            logger.info('Webhook definido com sucesso!');
+            logger.info(`Informações da resposta: ${JSON.stringify(response.data)}`);
         } else {
-            console.error('Falha ao definir o webhook:', response.data.description);
+            logger.error(`Falha ao definir o webhook: ${response.data.description}`);
         }
     } catch (error) {
-        console.error('Erro ao chamar a API setWebhook do Telegram:', error.response ? error.response.data : error.message);
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        logger.error(`Erro ao chamar a API setWebhook do Telegram: ${errorMessage}`);
         if (error.response && error.response.status === 401) {
-            console.error('Erro 401: Verifique se o Bot Token está correto e é válido.');
+            logger.error('Erro 401: Verifique se o Bot Token está correto e é válido.');
         } else if (error.response && error.response.status === 400) {
-            console.error('Erro 400: Verifique se o URL do Webhook está acessível e é HTTPS (se for o caso).');
+            logger.error('Erro 400: Verifique se o URL do Webhook está acessível e é HTTPS (se for o caso).');
         }
     }
 }

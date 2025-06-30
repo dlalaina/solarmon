@@ -1,5 +1,5 @@
 // diagnosticLogger.js
-const logger = require('./logger');
+const logger = require('./logger')('email');
 
 /**
  * Captures and saves diagnostic codes from the latest solar_data entry

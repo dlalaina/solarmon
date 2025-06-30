@@ -1,6 +1,6 @@
 // telegramNotifier.js
 const axios = require('axios');
-const logger = require('./logger');
+const logger = require('./logger')('telegram');
 
 let botToken = '';
 let defaultChatId = ''; // Renomeado para maior clareza, é o seu chat_id de admin

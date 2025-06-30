@@ -5,15 +5,15 @@ const { sendTelegramMessage, init: initTelegramNotifier } = require('./telegramN
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
-const logger = require('./logger');
+const logger = require('./logger')('web');
 
 // --- Load Credentials from external file ---
 let credentials;
 try {
     credentials = require('./credentials.json');
 } catch (error) {
-    console.error(`ERRO FATAL: Não foi possível carregar 'credentials.json'. Certifique-se de que o arquivo existe e está formatado corretamente.`);
-    console.error(error.stack);
+    logger.error("ERRO FATAL: Não foi possível carregar 'credentials.json'. Certifique-se de que o arquivo existe e está formatado corretamente.");
+    logger.error(error.stack);
     process.exit(1);
 }
 

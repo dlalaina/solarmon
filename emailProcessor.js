@@ -2,7 +2,7 @@
 const Imap = require('imap');
 const { simpleParser } = require('mailparser');
 const emailAlarmParsers = require('./emailAlarmParsers'); // Importa o módulo de parsers
-const logger = require('./logger');
+const logger = require('./logger')('email');
 
 /**
  * Processes event emails from an IMAP mailbox based on provider type and custom tag.

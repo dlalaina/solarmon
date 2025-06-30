@@ -1,5 +1,5 @@
 // database.js
-const logger = require('./logger');
+const logger = require('./logger')('main');
 const moment = require('moment-timezone');
 
 /**

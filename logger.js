@@ -4,46 +4,64 @@ require('winston-daily-rotate-file');
 const path = require('path');
 
 const logsDir = path.join(__dirname, 'logs');
-
 const { combine, timestamp, printf, colorize } = winston.format;
+
+// Cache para armazenar as instâncias de logger
+const loggers = {};
 
 // Formato customizado para o console
 const consoleFormat = printf(({ level, message, timestamp }) => {
   return `[${timestamp}] ${level}: ${message}`;
 });
 
-// Formato para os arquivos (sem nível, para manter a compatibilidade com o formato atual)
+// Formato para os arquivos
 const fileFormat = printf(({ message, timestamp }) => {
   return `[${timestamp}] ${message}`;
 });
 
-const logger = winston.createLogger({
-  level: 'info', // Nível mínimo de log a ser registrado
-  format: combine(
-    timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    fileFormat
-  ),
-  transports: [
-    // Salva todos os logs em arquivos diários rotacionados
-    new winston.transports.DailyRotateFile({
-      filename: path.join(logsDir, 'solarmon-%DATE%.log'),
-      datePattern: 'YYYY-MM-DD',
-      zippedArchive: true, // Comprime os logs antigos
-      maxSize: '20m',
-      maxFiles: '90d' // Mantém os logs por 90 dias
-    })
-  ]
-});
+/**
+ * Cria e retorna uma instância de logger para uma categoria específica.
+ * As instâncias são armazenadas em cache para reutilização.
+ * @param {string} category - A categoria do log (ex: 'main', 'web', 'email', 'telegram').
+ * @returns {winston.Logger} A instância do logger.
+ */
+function getLogger(category = 'main') {
+  if (loggers[category]) {
+    return loggers[category];
+  }
 
-// Adiciona um transport para o console APENAS se não estiver em ambiente de produção.
-// Isso é útil para ver os logs em tempo real durante o desenvolvimento.
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
+  const logger = winston.createLogger({
+    level: 'info',
     format: combine(
-      colorize(),
-      consoleFormat
-    )
-  }));
+      timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+      fileFormat
+    ),
+    transports: [
+      new winston.transports.DailyRotateFile({
+        filename: path.join(logsDir, `${category}-%DATE%.log`), // Nome do arquivo baseado na categoria
+        datePattern: 'YYYY-MM-DD',
+        zippedArchive: true,
+        maxSize: '20m',
+        maxFiles: '90d'
+      })
+    ]
+  });
+
+  // Adiciona console transport para ambientes de não-produção
+  if (process.env.NODE_ENV !== 'production') {
+    logger.add(new winston.transports.Console({
+      format: combine(
+        colorize(),
+        printf(({ level, message, timestamp }) => {
+          // Adiciona a categoria ao log do console para clareza
+          return `[${timestamp}] [${category.toUpperCase()}] ${level}: ${message}`;
+        })
+      )
+    }));
+  }
+
+  loggers[category] = logger;
+  return logger;
 }
 
-module.exports = logger;
+module.exports = getLogger;

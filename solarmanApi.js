@@ -2,7 +2,7 @@
 const axios = require('axios');
 const fs = require('fs').promises;
 const path = require('path');
-const logger = require('./logger');
+const logger = require('./logger')('main');
 
 const BASE_URL = 'https://globalapi.solarmanpv.com';
 const TOKEN_CACHE_FILE = path.join(__dirname, 'solarman_token_cache.json'); // Arquivo para cache do token
