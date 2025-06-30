@@ -167,16 +167,13 @@ async function updateGrowattServerStatus(dbPool, isSuccess) {
     }
 }
 
-
-// Função principal de recuperação e processamento de dados
-async function retrieveAndProcessData() {
-  try {
-    // Garante que o diretório raw_data exista
-    await fs.mkdir(raw_data_dir, { recursive: true });
-
-    // --- Busca de Dados GROWATT ---
+/**
+ * Fetches, processes, and stores data from the Growatt API.
+ * @param {mysql.Pool} dbPool - The MySQL connection pool.
+ */
+async function processGrowattData(dbPool) {
     logger.info('Iniciando busca de dados Growatt...');
-    let growattApiSuccess = false; // Flag para rastrear o sucesso da API Growatt
+    let growattApiSuccess = false;
 
     try {
         const growatt = await growattApi.login(credentials.growatt.user, credentials.growatt.password);
@@ -196,8 +193,7 @@ async function retrieveAndProcessData() {
         await fs.writeFile(growattFullFilePath, JSON.stringify(growattDataForProcessing, null, ' '));
         logger.info(`Dados brutos Growatt salvos em ${growattFullFilePath}`);
 
-        // Inserir dados Growatt no MySQL
-        await database.insertDataIntoMySQL(pool, growattDataForProcessing);
+        await database.insertDataIntoMySQL(dbPool, growattDataForProcessing);
         logger.info('Dados Growatt inseridos/atualizados no MySQL.');
 
         try {
@@ -206,25 +202,32 @@ async function retrieveAndProcessData() {
         } catch (logoutError) {
             logger.warn(`Falha ao deslogar da Growatt: ${logoutError.message}`);
         }
-        growattApiSuccess = true; // Marca como sucesso
+        growattApiSuccess = true;
     } catch (growattError) {
         logger.error(`Erro durante a busca de dados Growatt: ${growattError.message}`);
-        growattApiSuccess = false; // Marca como falha
-        // Não relança o erro aqui para permitir o processamento Solarman e o gerenciamento de alarmes.
+        growattApiSuccess = false;
     } finally {
-        // NOVO: Atualiza o status do servidor Growatt no DB, independentemente do sucesso
-        await updateGrowattServerStatus(pool, growattApiSuccess);
+        await updateGrowattServerStatus(dbPool, growattApiSuccess);
         logger.info('Busca de dados Growatt concluída.');
     }
+}
 
-    // --- Busca de Dados SOLARMAN --- NOVO BLOCO
+/**
+ * Fetches, processes, and stores data from the Solarman API.
+ * @param {mysql.Pool} dbPool - The MySQL connection pool.
+ */
+async function processSolarmanData(dbPool) {
     logger.info('Iniciando busca de dados Solarman...');
-    const plantConfigs = await getPlantConfig(pool); // Busca todas as configurações de plantas
-    const solarmanInverters = plantConfigs.filter(config => config.api_type === 'Solarman'); // Filtra inversores Solarman
+    try {
+        const plantConfigs = await getPlantConfig(dbPool);
+        const solarmanInverters = plantConfigs.filter(config => config.api_type === 'Solarman');
 
-    if (solarmanInverters.length > 0) {
-        // Obtém o token Solarman uma vez para todas as requisições de dados
-        const solarmanToken = await solarmanApi.getSolarmanToken( // getSolarmanToken já usa o logger
+        if (solarmanInverters.length === 0) {
+            logger.info("Nenhuma planta Solarman configurada. Pulando busca.");
+            return;
+        }
+
+        const solarmanToken = await solarmanApi.getSolarmanToken(
             credentials.solarman.appId,
             credentials.solarman.appSecret,
             credentials.solarman.email,
@@ -233,54 +236,71 @@ async function retrieveAndProcessData() {
         );
         logger.info('Token Solarman obtido para acesso aos inversores.');
 
-        const solarmanRawData = {}; // Objeto para armazenar todos os dados brutos da Solarman
+        const solarmanRawData = {};
         for (const inverter of solarmanInverters) {
             try {
                 const deviceSn = inverter.inverter_id;
-                const data = await solarmanApi.getSolarmanCurrentData(solarmanToken, deviceSn); // getSolarmanCurrentData já usa o logger
-                solarmanRawData[deviceSn] = data; // Armazena dados brutos pelo número de série (deviceSn)
+                const data = await solarmanApi.getSolarmanCurrentData(solarmanToken, deviceSn);
+                solarmanRawData[deviceSn] = data;
                 logger.info(`Dados Solarman para ${deviceSn} coletados.`);
             } catch (solarmanFetchError) {
                 logger.error(`Erro ao buscar dados Solarman para ${inverter.inverter_id}: ${solarmanFetchError.message}`);
-                // Continua para o próximo inversor mesmo se um falhar
             }
         }
 
-        const solarmanFullFilePath = path.join(raw_data_dir, `solarman_full_${getFormattedDateForFilename()}.json`);
-        await fs.writeFile(solarmanFullFilePath, JSON.stringify(solarmanRawData, null, ' '));
-        logger.info(`Dados brutos Solarman salvos em ${solarmanFullFilePath}`);
+        if (Object.keys(solarmanRawData).length > 0) {
+            const solarmanFullFilePath = path.join(raw_data_dir, `solarman_full_${getFormattedDateForFilename()}.json`);
+            await fs.writeFile(solarmanFullFilePath, JSON.stringify(solarmanRawData, null, ' '));
+            logger.info(`Dados brutos Solarman salvos em ${solarmanFullFilePath}`);
 
-        // --- PREPARAR DADOS SOLARMAN PARA database.insertDataIntoMySQL ---
-        // Construir a estrutura esperada por database.js: { plants: { "plant_name": { plantName: "...", devices: { "inverter_id": {...} } } } }
-        const solarmanPlantsData = {};
-        for (const inverter of solarmanInverters) {
-            const plantName = inverter.plant_name;
-            const deviceSn = inverter.inverter_id;
+            const solarmanPlantsData = {};
+            for (const inverter of solarmanInverters) {
+                const plantName = inverter.plant_name;
+                const deviceSn = inverter.inverter_id;
 
-            if (solarmanRawData[deviceSn]) { // Garante que temos dados brutos para este inversor
-                if (!solarmanPlantsData[plantName]) {
-                    solarmanPlantsData[plantName] = {
-                        plantName: plantName,
-                        devices: {}
-                    };
+                if (solarmanRawData[deviceSn]) {
+                    if (!solarmanPlantsData[plantName]) {
+                        solarmanPlantsData[plantName] = {
+                            plantName: plantName,
+                            devices: {}
+                        };
+                    }
+                    solarmanPlantsData[plantName].devices[deviceSn] = solarmanRawData[deviceSn];
                 }
-                solarmanPlantsData[plantName].devices[deviceSn] = solarmanRawData[deviceSn];
-            } else {
-                logger.warn(`Aviso: Dados brutos não encontrados para o inversor Solarman ${deviceSn}. Pulando processamento para este inversor.`);
             }
+            const solarmanDataForProcessing = { plants: solarmanPlantsData };
+            await database.insertDataIntoMySQL(dbPool, solarmanDataForProcessing);
+            logger.info('Dados Solarman inseridos/atualizados no MySQL.');
+        } else {
+            logger.warn('Nenhum dado bruto da Solarman foi coletado com sucesso.');
         }
-
-        const solarmanDataForProcessing = { plants: solarmanPlantsData }; // Encapsula em 'plants'
-
-        // Inserir dados Solarman no MySQL
-        await database.insertDataIntoMySQL(pool, solarmanDataForProcessing);
-        logger.info('Dados Solarman inseridos/atualizados no MySQL.');
-
-    } else {
-        logger.info("Nenhuma planta Solarman configurada em 'plant_config'. Pulando busca de dados Solarman.");
+    } catch (solarmanError) {
+        logger.error(`Erro durante a busca de dados Solarman: ${solarmanError.message}`);
+    } finally {
+        logger.info('Busca de dados Solarman concluída.');
     }
-    logger.info('Busca de dados Solarman concluída.');
+}
 
+// Função principal de recuperação e processamento de dados
+async function retrieveAndProcessData() {
+  try {
+    // Garante que o diretório raw_data exista
+    await fs.mkdir(raw_data_dir, { recursive: true });
+
+    // Executa as buscas de dados em paralelo para otimizar o tempo
+    logger.info('Iniciando buscas de dados das APIs em paralelo...');
+    const results = await Promise.allSettled([
+        processGrowattData(pool),
+        processSolarmanData(pool)
+    ]);
+
+    results.forEach((result, index) => {
+        const apiName = index === 0 ? 'Growatt' : 'Solarman';
+        if (result.status === 'rejected') {
+            logger.error(`Processo da API ${apiName} falhou com erro: ${result.reason}`);
+        }
+    });
+    logger.info('Buscas de dados em paralelo concluídas.');
 
     // --- Gerenciamento de Alarmes ---
     await checkAndManageAlarms(pool, credentials.telegram.chatId);
