@@ -2,6 +2,8 @@
 
 const path = require('path');
 const fs = require('fs').promises;
+const zlib = require('zlib');
+const { promisify } = require('util');
 const mysql = require('mysql2/promise');
 
 const growattApi = require('./growattApi');
@@ -10,6 +12,8 @@ const database = require('./database');
 const logger = require('./logger')('main');
 const telegramNotifier = require('./telegramNotifier');
 const { checkAndManageAlarms, GROWATT_RECOVERY_GRACE_PERIOD_MINUTES } = require('./alarmManager');
+
+const gzip = promisify(zlib.gzip);
 
 // --- Carrega Credenciais de arquivo externo ---
 let credentials;
@@ -21,14 +25,15 @@ try {
   process.exit(1); // Sai do script se as credenciais não puderem ser carregadas
 }
 
-// Helper function to format the date as YYYYMMDDHH
+// Helper function to format the date as YYYYMMDDHHmm
 function getFormattedDateForFilename() {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   const hours = String(now.getHours()).padStart(2, '0');
-  return `${year}${month}${day}${hours}`;
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  return `${year}${month}${day}${hours}${minutes}`;
 }
 
 // Configurações e pool do banco de dados
@@ -45,6 +50,59 @@ let pool; // Declarado aqui para ser acessível em outras funções
 
 // Diretórios
 const raw_data_dir = path.join(__dirname, 'raw_data'); // Define raw_data_dir aqui
+
+/**
+ * Manages raw data files: compresses yesterday's files and deletes files older than 30 days.
+ */
+async function manageRawDataFiles() {
+    logger.info('Iniciando gerenciamento de arquivos de dados brutos...');
+    try {
+        const files = await fs.readdir(raw_data_dir);
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
+        now.setDate(now.getDate() + 30); // Reset 'now' to the original date
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayDateString = `${yesterday.getFullYear()}${String(yesterday.getMonth() + 1).padStart(2, '0')}${String(yesterday.getDate()).padStart(2, '0')}`;
+
+        for (const file of files) {
+            const filePath = path.join(raw_data_dir, file);
+            const fileStats = await fs.stat(filePath);
+
+            // 1. Deletar arquivos com mais de 30 dias
+            if (fileStats.mtime < thirtyDaysAgo) {
+                await fs.unlink(filePath);
+                logger.info(`Arquivo antigo deletado: ${file}`);
+                continue; // Pula para o próximo arquivo
+            }
+
+            // 2. Compactar arquivos .json de ontem
+            if (file.endsWith('.json') && file.includes(yesterdayDateString)) {
+                try {
+                    const fileContent = await fs.readFile(filePath);
+                    const compressedContent = await gzip(fileContent);
+                    const newFilePath = `${filePath}.gz`;
+                    
+                    await fs.writeFile(newFilePath, compressedContent);
+                    logger.info(`Arquivo compactado: ${file} -> ${file}.gz`);
+
+                    await fs.unlink(filePath);
+                    logger.info(`Arquivo original removido: ${file}`);
+
+                } catch (compressionError) {
+                    logger.error(`Erro ao compactar ou remover o arquivo ${file}: ${compressionError.message}`);
+                }
+            }
+        }
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            logger.warn(`Diretório raw_data não encontrado. Será criado na próxima execução.`);
+        } else {
+            logger.error(`Erro ao gerenciar arquivos de dados brutos: ${error.message}`);
+        }
+    }
+    logger.info('Gerenciamento de arquivos de dados brutos concluído.');
+}
 
 // Função para buscar a configuração da planta do banco de dados
 async function getPlantConfig(dbPool) {
@@ -244,6 +302,9 @@ async function retrieveAndProcessData() {
 
     // Configura o notifier do Telegram para usar as credenciais
     telegramNotifier.init(credentials.telegram.botToken, credentials.telegram.chatId);
+
+    // Executa o gerenciamento dos arquivos de dados brutos
+    await manageRawDataFiles();
 
     await retrieveAndProcessData();
 
