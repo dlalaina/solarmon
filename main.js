@@ -10,7 +10,6 @@ const database = require('./database');
 const logger = require('./logger')('main');
 const telegramNotifier = require('./telegramNotifier');
 const { checkAndManageAlarms, GROWATT_RECOVERY_GRACE_PERIOD_MINUTES } = require('./alarmManager');
-const { getFormattedDateForFilename } = require('./utils');
 
 // --- Carrega Credenciais de arquivo externo ---
 let credentials;
@@ -20,6 +19,16 @@ try {
   logger.error("ERRO FATAL: Não foi possível carregar 'credentials.json'. Certifique-se de que o arquivo existe e está formatado corretamente.");
   logger.error(error.stack);
   process.exit(1); // Sai do script se as credenciais não puderem ser carregadas
+}
+
+// Helper function to format the date as YYYYMMDDHH
+function getFormattedDateForFilename() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  return `${year}${month}${day}${hours}`;
 }
 
 // Configurações e pool do banco de dados
