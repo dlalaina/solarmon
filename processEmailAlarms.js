@@ -1,22 +1,19 @@
 #!/usr/bin/env node
 
 const path = require('path');
-const fs = require('fs').promises;
 const mysql = require('mysql2/promise');
 
-const { getFormattedTimestamp } = require('./utils');
+const logger = require('./logger');
 const telegramNotifier = require('./telegramNotifier');
-const emailProcessor = require('./emailProcessor'); // Este módulo será atualizado
+const emailProcessor = require('./emailProcessor');
 const diagnosticLogger = require('./diagnosticLogger');
-
-const logs_dir = path.join(__dirname, 'logs');
 
 let credentials;
 try {
     credentials = require('./credentials.json');
 } catch (error) {
-    console.error(`[${getFormattedTimestamp()}] ERRO FATAL: Não foi possível carregar 'credentials.json'. Certifique-se de que o arquivo existe e está formatado corretamente.`);
-    console.error(error.message);
+    console.error(`ERRO FATAL: Não foi possível carregar 'credentials.json'. Certifique-se de que o arquivo existe e está formatado corretamente.`);
+    console.error(error.stack);
     process.exit(1);
 }
 
@@ -43,18 +40,16 @@ const imapConfig = {
 };
 
 (async () => {
-    console.time('Execução total (processEmailAlarms)');
+    const startTime = Date.now();
     try {
-        await fs.mkdir(logs_dir, { recursive: true });
-
         pool = mysql.createPool(dbConfig);
-        console.log(`[${getFormattedTimestamp()}] Pool de conexão MySQL criado para processamento de e-mails.`);
+        logger.info('Pool de conexão MySQL criado para processamento de e-mails.');
 
         telegramNotifier.init(credentials.telegram.botToken, credentials.telegram.chatId);
         const adminChatId = credentials.telegram.chatId; // Obtém o ID do chat do administrador
 
         // --- Processamento de e-mails Growatt ---
-        console.log(`[${getFormattedTimestamp()}] Iniciando processamento de e-mails Growatt.`);
+        logger.info('Iniciando processamento de e-mails Growatt.');
         await emailProcessor.processEmails(
             imapConfig,
             pool,
@@ -64,10 +59,10 @@ const imapConfig = {
             'growatt_alert', // <--- Nova tag customizada para Growatt
             adminChatId // Passa o ID do chat do administrador
         );
-        console.log(`[${getFormattedTimestamp()}] Processamento de e-mails Growatt concluído.`);
+        logger.info('Processamento de e-mails Growatt concluído.');
 
         // --- Processamento de e-mails Solarman ---
-        console.log(`[${getFormattedTimestamp()}] Iniciando processamento de e-mails Solarman.`);
+        logger.info('Iniciando processamento de e-mails Solarman.');
         await emailProcessor.processEmails(
             imapConfig,
             pool,
@@ -77,17 +72,18 @@ const imapConfig = {
             'solarman_alert', // <--- Nova tag customizada para Solarman
             adminChatId // Passa o ID do chat do administrador
         );
-        console.log(`[${getFormattedTimestamp()}] Processamento de e-mails Solarman concluído.`);
+        logger.info('Processamento de e-mails Solarman concluído.');
 
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro fatal na execução do script de e-mail:`, error.message);
-        await fs.writeFile(path.join(logs_dir, 'error.log'), `[${getFormattedTimestamp()}] Erro fatal processEmailAlarms: ${error.stack}\n`, { flag: 'a' });
+        logger.error(`Erro fatal na execução do script de e-mail: ${error.stack}`);
         await telegramNotifier.sendTelegramMessage(`🔥 <b>ERRO CRÍTICO NO SCRIPT DE E-MAIL!</b> 🔥\nDetalhes: ${error.message}\nVerifique o log para mais informações.`);
     } finally {
         if (pool) {
             await pool.end();
-            console.log(`[${getFormattedTimestamp()}] Pool de conexão MySQL encerrado para processamento de e-mails.`);
+            logger.info('Pool de conexão MySQL encerrado para processamento de e-mails.');
         }
-        console.timeEnd('Execução total (processEmailAlarms)');
+        const endTime = Date.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(3);
+        logger.info(`Execução total (processEmailAlarms): ${duration}s`);
     }
 })();

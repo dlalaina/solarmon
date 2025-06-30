@@ -1,5 +1,4 @@
 const telegramNotifier = require('./telegramNotifier');
-const { getFormattedTimestamp } = require('./utils');
 
 // Constante para definir o período de carência (em minutos) após a recuperação do servidor Growatt
 const GROWATT_RECOVERY_GRACE_PERIOD_MINUTES = 18; // 18 minutos = 3 ciclos de 5min após o servidor voltar
@@ -688,4 +687,5 @@ async function processDetections(detections, alarmType, problemDetails, alarmSev
 
 module.exports = {
     checkAndManageAlarms,
+    GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, // Exporta a constante
 };

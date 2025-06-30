@@ -1,20 +1,19 @@
 // web_server.js
 const express = require('express');
-const fs = require('fs');
 const jwt = require('jsonwebtoken'); // Para geração e verificação de tokens JWT
 const { sendTelegramMessage, init: initTelegramNotifier } = require('./telegramNotifier');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
-const { getFormattedTimestamp } = require('./utils'); // Importado de utils.js
+const logger = require('./logger');
 
 // --- Load Credentials from external file ---
 let credentials;
 try {
     credentials = require('./credentials.json');
 } catch (error) {
-    console.error(`[${getFormattedTimestamp()}] ERRO FATAL: Não foi possível carregar 'credentials.json'. Certifique-se de que o arquivo existe e está formatado corretamente.`);
-    console.error(error.message);
+    console.error(`ERRO FATAL: Não foi possível carregar 'credentials.json'. Certifique-se de que o arquivo existe e está formatado corretamente.`);
+    console.error(error.stack);
     process.exit(1);
 }
 
@@ -27,7 +26,7 @@ const ADMIN_PASSWORD = credentials.auth.adminPassword;
 // --- Inicialização do Telegram Notifier ---
 const adminChatId = credentials.telegram.chatId;
 initTelegramNotifier(credentials.telegram.botToken, adminChatId);
-console.log(`[${getFormattedTimestamp()}] Telegram Notifier inicializado no web_server.`);
+logger.info('Telegram Notifier inicializado no web_server.');
 
 // --- MySQL Connection Configuration ---
 const dbConfig = {
@@ -45,9 +44,9 @@ let pool;
 async function initializeDatabasePool() {
     try {
         pool = mysql.createPool(dbConfig);
-        console.log(`[${getFormattedTimestamp()}] Pool de conexão MySQL criado para o servidor web.`);
+        logger.info('Pool de conexão MySQL criado para o servidor web.');
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro ao criar pool de conexão MySQL:`, error.message);
+        logger.error(`Erro ao criar pool de conexão MySQL: ${error.message}`);
         process.exit(1);
     }
 }
@@ -69,7 +68,7 @@ function authenticateToken(req, res, next) {
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) {
-            console.error(`[${getFormattedTimestamp()}] Erro na verificação do token:`, err.message);
+            logger.error(`Erro na verificação do token: ${err.message}`);
             return res.status(403).json({ message: 'Token inválido ou expirado.' });
         }
         req.user = user; // Adiciona o payload do token à requisição
@@ -108,28 +107,17 @@ app.post('/telegram-webhook', async (req, res) => {
     const firstName = msg.from.first_name;
     const lastName = msg.from.last_name;
     const messageText = msg.text;
-
-    const logEntry = `[${getFormattedTimestamp()}] CHAT_ID: ${chatId}, USER_ID: ${userId}, USERNAME: ${userName || 'N/A'}, NAME: ${firstName || ''} ${lastName || ''}, MESSAGE: "${messageText}"\n`;
-
-    // --- LOG PARA COLETAR CHAT_IDS ---
-    const CHAT_IDS_LOG_FILE = path.join(__dirname, 'logs', 'received_chat_ids.log');
-    const logDir = path.dirname(CHAT_IDS_LOG_FILE);
-    if (!fs.existsSync(logDir)) {
-        fs.mkdirSync(logDir, { recursive: true });
-    }
-    fs.appendFile(CHAT_IDS_LOG_FILE, logEntry, (err) => {
-        if (err) {
-            console.error('Erro ao escrever no arquivo de log de chat_ids:', err);
-        }
-    });
-
-    console.log(`[${getFormattedTimestamp()}] Mensagem recebida de ${firstName || userName || userId} (Chat ID: ${chatId}): "${messageText}"`);
+    
+    const logEntry = `CHAT_ID: ${chatId}, USER_ID: ${userId}, USERNAME: ${userName || 'N/A'}, NAME: ${firstName || ''} ${lastName || ''}, MESSAGE: "${messageText}"`;
+    
+    // Log da mensagem recebida
+    logger.info(`Mensagem recebida do Telegram: ${logEntry}`);
 
     // --- Lógica para o comando "cadastrar" ---
     if (messageText && typeof messageText === 'string' && messageText.toLowerCase().includes('cadastrar')) {
         try {
             await sendTelegramMessage('Obrigado por se cadastrar. Seu ID de chat foi registrado.', chatId);
-            console.log(`[${getFormattedTimestamp()}] Enviado mensagem de cadastro para ${firstName || userName || userId} (Chat ID: ${chatId}).`);
+            logger.info(`Enviado mensagem de cadastro para ${firstName || userName || userId} (Chat ID: ${chatId}).`);
 
             await new Promise(resolve => setTimeout(resolve, 1000)); // Espera 1 segundo
 
@@ -141,10 +129,10 @@ app.post('/telegram-webhook', async (req, res) => {
                 `NOME: ${firstName || ''} ${lastName || ''}`;
 
             await sendTelegramMessage(adminNotificationMessage, adminChatId);
-            console.log(`[${getFormattedTimestamp()}] Notificação de novo cadastro enviada para o admin.`);
+            logger.info('Notificação de novo cadastro enviada para o admin.');
 
         } catch (error) {
-            console.error(`[${getFormattedTimestamp()}] Erro ao processar comando 'cadastrar' ou enviar notificação para ${chatId}:`, error.response ? error.response.data : error.message);
+            logger.error(`Erro ao processar comando 'cadastrar' ou enviar notificação para ${chatId}: ${error.response ? error.response.data : error.message}`);
         }
     }
 });
@@ -162,7 +150,7 @@ app.get('/api/alarms/active', async (req, res) => {
         );
         res.json(rows);
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro ao buscar alarmes ativos:`, error.message);
+        logger.error(`Erro ao buscar alarmes ativos: ${error.message}`);
         res.status(500).json({ error: 'Erro ao buscar alarmes ativos.' });
     } finally {
         if (connection) connection.release();
@@ -182,7 +170,7 @@ app.get('/api/alarms/history', async (req, res) => {
         );
         res.json(rows);
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro ao buscar histórico de alarmes:`, error.message);
+        logger.error(`Erro ao buscar histórico de alarmes: ${error.message}`);
         res.status(500).json({ error: 'Erro ao buscar histórico de alarmes.' });
     } finally {
         if (connection) connection.release();
@@ -295,7 +283,7 @@ app.get('/api/plants-summary', async (req, res) => {
         res.json(result);
 
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro ao buscar resumo das plantas:`, error.message);
+        logger.error(`Erro ao buscar resumo das plantas: ${error.message}`);
         res.status(500).json({ error: 'Erro ao buscar resumo das plantas.' });
     } finally {
         if (connection) connection.release();
@@ -326,7 +314,7 @@ app.put('/api/alarms/:id/observation', authenticateToken, async (req, res) => {
 
         res.json({ message: 'Observação do alarme atualizada com sucesso.' });
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro ao atualizar observação para o alarme ${id}:`, error.message);
+        logger.error(`Erro ao atualizar observação para o alarme ${id}: ${error.message}`);
         res.status(500).json({ error: 'Erro ao atualizar observação.' });
     } finally {
         if (connection) connection.release();
@@ -379,7 +367,7 @@ app.post('/api/clear-alarm/:alarmId', authenticateToken, async (req, res) => {
                                      `Inversor: <b>${alarmToClear.inverter_id}</b>\n` +
                                      `Detalhes: ${alarmToClear.problem_details || 'N/A'}`;
         await sendTelegramMessage(adminResolveMessage, adminChatId);
-        console.log(`[${getFormattedTimestamp()}] Notificação de alarme resolvido enviada para o admin (Alarme ID: ${alarmId}).`);
+        logger.info(`Notificação de alarme resolvido enviada para o admin (Alarme ID: ${alarmId}).`);
 
         // 4. Enviar notificação para o PROPRIETÁRIO (se existir e for diferente do ADMIN)
         const [plantInfoRows] = await connection.execute(
@@ -392,18 +380,18 @@ app.post('/api/clear-alarm/:alarmId', authenticateToken, async (req, res) => {
             if (ownerChatId && String(ownerChatId) !== String(adminChatId)) {
                 const ownerResolveMessage = `✅ O alarme para sua usina <b>${alarmToClear.plant_name}</b> (Inversor: <b>${alarmToClear.inverter_id}</b>) foi RESOLVIDO.`;
                 await sendTelegramMessage(ownerResolveMessage, ownerChatId);
-                console.log(`[${getFormattedTimestamp()}] Notificação de alarme resolvido enviada para o proprietário da Planta: ${alarmToClear.plant_name} (Alarme ID: ${alarmId}).`);
+                logger.info(`Notificação de alarme resolvido enviada para o proprietário da Planta: ${alarmToClear.plant_name} (Alarme ID: ${alarmId}).`);
             } else if (String(ownerChatId) === String(adminChatId)) {
-                console.log(`[${getFormattedTimestamp()}] Proprietário da planta ${alarmToClear.plant_name} é o mesmo que o ADMIN, notificação de alarme resolvido enviada apenas uma vez.`);
+                logger.info(`Proprietário da planta ${alarmToClear.plant_name} é o mesmo que o ADMIN, notificação de alarme resolvido enviada apenas uma vez.`);
             }
         }
 
         await connection.commit();
-        console.log(`[${getFormattedTimestamp()}] Alarme ID ${alarmId} do tipo '${alarmToClear.alarm_type}' limpo manualmente via web.`);
+        logger.info(`Alarme ID ${alarmId} do tipo '${alarmToClear.alarm_type}' limpo manualmente via web.`);
         res.json({ message: 'Alarme limpo com sucesso!', alarmId: alarmId });
 
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] ERRO ao limpar alarme ID ${alarmId} (Manual Web):`, error.message);
+        logger.error(`ERRO ao limpar alarme ID ${alarmId} (Manual Web): ${error.message}`);
         if (connection) {
             await connection.rollback();
         }
@@ -415,17 +403,17 @@ app.post('/api/clear-alarm/:alarmId', authenticateToken, async (req, res) => {
 
 // Inicia o servidor
 const server = app.listen(PORT, () => {
-    console.log(`[${getFormattedTimestamp()}] Servidor web rodando na porta ${PORT}`);
-    console.log(`Acesse: http://localhost:${PORT}`);
+    logger.info(`Servidor web rodando na porta ${PORT}`);
+    logger.info(`Acesse: http://localhost:${PORT}`);
 });
 
 // Incluir o pool.end no evento de encerramento do processo
 const shutdown = async (signal) => {
-    console.log(`\n[${getFormattedTimestamp()}] Recebido sinal ${signal}. Encerrando servidor e pool de conexões...`);
+    logger.info(`\nRecebido sinal ${signal}. Encerrando servidor e pool de conexões...`);
     server.close(async () => {
         if (pool) {
             await pool.end();
-            console.log(`[${getFormattedTimestamp()}] Pool de conexão MySQL encerrado.`);
+            logger.info('Pool de conexão MySQL encerrado.');
         }
         process.exit(0);
     });
@@ -433,4 +421,3 @@ const shutdown = async (signal) => {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
-

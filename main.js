@@ -7,10 +7,9 @@ const mysql = require('mysql2/promise');
 const growattApi = require('./growattApi');
 const solarmanApi = require('./solarmanApi'); // NOVO: Importa a API Solarman
 const database = require('./database');
-const alarmManager = require('./alarmManager');
 const telegramNotifier = require('./telegramNotifier');
-const { checkAndManageAlarms } = require('./alarmManager');
-const { getFormattedTimestamp } = require('./utils');
+const { checkAndManageAlarms, GROWATT_RECOVERY_GRACE_PERIOD_MINUTES } = require('./alarmManager');
+const { getFormattedDateForFilename } = require('./utils');
 
 // --- Carrega Credenciais de arquivo externo ---
 let credentials;
@@ -59,8 +58,6 @@ async function updateGrowattServerStatus(dbPool, isSuccess) {
     try {
         connection = await dbPool.getConnection();
         await connection.beginTransaction();
-
-        const GROWATT_RECOVERY_GRACE_PERIOD_MINUTES = 18; // Deve ser a mesma constante definida em alarmManager.js
 
         if (isSuccess) {
             // Se a chamada à API da Growatt foi bem-sucedida
@@ -128,7 +125,7 @@ async function retrieveAndProcessData() {
         const getAllPlantDataRaw = await growattApi.getAllPlantData(growatt, growattOptions);
         const growattDataForProcessing = { plants: getAllPlantDataRaw };
 
-        const growattFullFilePath = path.join(raw_data_dir, `growatt_full_${require('./utils').getFormattedDateForFilename()}.json`);
+        const growattFullFilePath = path.join(raw_data_dir, `growatt_full_${getFormattedDateForFilename()}.json`);
         await fs.writeFile(growattFullFilePath, JSON.stringify(growattDataForProcessing, null, ' '));
         console.log(`[${getFormattedTimestamp()}] Dados brutos Growatt salvos em ${growattFullFilePath}`);
 
@@ -182,7 +179,7 @@ async function retrieveAndProcessData() {
             }
         }
 
-        const solarmanFullFilePath = path.join(raw_data_dir, `solarman_full_${require('./utils').getFormattedDateForFilename()}.json`);
+        const solarmanFullFilePath = path.join(raw_data_dir, `solarman_full_${getFormattedDateForFilename()}.json`);
         await fs.writeFile(solarmanFullFilePath, JSON.stringify(solarmanRawData, null, ' '));
         console.log(`[${getFormattedTimestamp()}] Dados brutos Solarman salvos em ${solarmanFullFilePath}`);
 
@@ -257,4 +254,3 @@ async function retrieveAndProcessData() {
     console.timeEnd('Execução total');
   }
 })();
-

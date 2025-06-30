@@ -1,5 +1,5 @@
 // diagnosticLogger.js
-const { getFormattedTimestamp } = require('./utils');
+const logger = require('./logger');
 
 /**
  * Captures and saves diagnostic codes from the latest solar_data entry
@@ -43,12 +43,12 @@ async function captureAndSaveDiagnosticCodes(connection, plantName, inverterId, 
                     data.fault_type, data.pto_status, data.bdc_status
                 ]
             );
-            console.log(`[${getFormattedTimestamp()}] Códigos de diagnóstico salvos para evento "${eventDescription}" (Planta: ${plantName}, Inversor: ${inverterId}).`);
+            logger.info(`Códigos de diagnóstico salvos para evento "${eventDescription}" (Planta: ${plantName}, Inversor: ${inverterId}).`);
         } else {
-            console.warn(`[${getFormattedTimestamp()}] Nenhuma entrada de solar_data encontrada para Planta: ${plantName}, Inversor: ${inverterId} ao registrar códigos de diagnóstico para evento "${eventDescription}".`);
+            logger.warn(`Nenhuma entrada de solar_data encontrada para Planta: ${plantName}, Inversor: ${inverterId} ao registrar códigos de diagnóstico para evento "${eventDescription}".`);
         }
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] ERRO ao salvar códigos de diagnóstico para evento "${eventDescription}" (Planta: ${plantName}, Inversor: ${inverterId}):`, error.message);
+        logger.error(`ERRO ao salvar códigos de diagnóstico para evento "${eventDescription}" (Planta: ${plantName}, Inversor: ${inverterId}): ${error.message}`);
         throw error; // Re-throw to be handled by the caller
     }
 }

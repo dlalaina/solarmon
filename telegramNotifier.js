@@ -1,12 +1,9 @@
 // telegramNotifier.js
 const axios = require('axios');
-const path = require('path');
-const fs = require('fs');
-const { getFormattedTimestamp } = require('./utils'); // Presumindo que utils.js existe
+const logger = require('./logger');
 
 let botToken = '';
 let defaultChatId = ''; // Renomeado para maior clareza, é o seu chat_id de admin
-const logs_dir = path.join(__dirname, 'logs');
 
 function init(token, id) {
   botToken = token;
@@ -17,7 +14,7 @@ function init(token, id) {
 async function sendTelegramMessage(message, targetChatId = defaultChatId) {
   // Use targetChatId para a verificação
   if (!botToken || !targetChatId) {
-    console.error(`[${getFormattedTimestamp()}] ERRO: Credenciais do Telegram incompletas para envio para ${targetChatId}. Use telegramNotifier.init(token, id).`);
+    logger.error(`ERRO: Credenciais do Telegram incompletas para envio para ${targetChatId}. Use telegramNotifier.init(token, id).`);
     return;
   }
 
@@ -30,12 +27,10 @@ async function sendTelegramMessage(message, targetChatId = defaultChatId) {
 
   try {
     const response = await axios.post(url, params);
-    // console.log(`[${getFormattedTimestamp()}] Mensagem enviada para ${targetChatId} com sucesso:`, response.data);
+    // logger.info(`Mensagem enviada para ${targetChatId} com sucesso.`); // Opcional: descomente se quiser logar envios bem-sucedidos.
   } catch (error) {
-    console.error(`[${getFormattedTimestamp()}] Erro ao enviar mensagem para ${targetChatId}:`, error.response ? error.response.data : error.message);
-    // Log detalhado do erro para investigação
-    const errorLog = `[${getFormattedTimestamp()}] Erro Telegram para Chat ID: ${targetChatId}, Mensagem: "${message}"\nErro: ${error.response ? JSON.stringify(error.response.data) : error.message}\n`;
-    fs.appendFileSync(path.join(logs_dir, 'telegram_errors.log'), errorLog);
+    const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+    logger.error(`Erro ao enviar mensagem para ${targetChatId}: ${errorMessage}`);
   }
 }
 

@@ -2,7 +2,7 @@
 const Imap = require('imap');
 const { simpleParser } = require('mailparser');
 const emailAlarmParsers = require('./emailAlarmParsers'); // Importa o módulo de parsers
-const { getFormattedTimestamp } = require('./utils');
+const logger = require('./logger');
 
 /**
  * Processes event emails from an IMAP mailbox based on provider type and custom tag.
@@ -27,7 +27,7 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
             parserFunction = emailAlarmParsers.parseSolarmanEmail;
             break;
         default:
-            console.warn(`[${getFormattedTimestamp()}] Tipo de provedor desconhecido: ${providerType}. Pulando processamento.`);
+            logger.warn(`Tipo de provedor desconhecido: ${providerType}. Pulando processamento.`);
             return;
     }
 
@@ -44,8 +44,8 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                         imap.end();
                         return reject(err);
                     }
-                    console.log(`[${getFormattedTimestamp()}] Conectado à caixa de entrada IMAP.`);
-                    console.log(`[${getFormattedTimestamp()}] Procurando e-mails para '${providerType}' com a tag customizada: '${customTag}'.`);
+                    logger.info('Conectado à caixa de entrada IMAP.');
+                    logger.info(`Procurando e-mails para '${providerType}' com a tag customizada: '${customTag}'.`);
 
                     // Critério de busca: e-mails com a customTag, NÃO processados por nós, E recebidos nas últimas 24 horas
                     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -54,18 +54,18 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                     // ATUALIZADO: Adicionado filtro UNKEYWORD para 'SOLARMON_PROCESSED'
                     imap.search([['KEYWORD', customTag], ['UNKEYWORD', 'SOLARMON_PROCESSED'], ['SINCE', dateString]], (err, uids) => {
                         if (err) {
-                            console.error(`[${getFormattedTimestamp()}] Erro na busca IMAP para ${providerType}:`, err);
+                            logger.error(`Erro na busca IMAP para ${providerType}: ${err}`);
                             imap.end();
                             return reject(err);
                         }
 
                         if (!uids || uids.length === 0) {
-                            console.log(`[${getFormattedTimestamp()}] Nenhuma nova notificação de evento ${providerType} marcada com '${customTag}', não processada, e recebida nas últimas 24h encontrada.`);
+                            logger.info(`Nenhuma nova notificação de evento ${providerType} marcada com '${customTag}', não processada, e recebida nas últimas 24h encontrada.`);
                             imap.end();
                             return resolve();
                         }
 
-                        console.log(`[${getFormattedTimestamp()}] Encontrados ${uids.length} e-mails de evento ${providerType} (últimas 24h, não processados) para processar.`);
+                        logger.info(`Encontrados ${uids.length} e-mails de evento ${providerType} (últimas 24h, não processados) para processar.`);
 
                         // Processar cada UID individualmente usando imap.fetch para garantir eventos 'body'
                         const emailProcessingPromises = uids.map(uid => {
@@ -75,7 +75,7 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                 let idForFlagOperations = uid; // Usar UID para operações de flag (para addFlags)
 
                                 try { // Início do bloco try principal para todo o processamento de um e-mail individual
-                                    console.log(`[${getFormattedTimestamp()}] Iniciando fetch individual para UID: ${uid}.`);
+                                    logger.info(`Iniciando fetch individual para UID: ${uid}.`);
                                     const f = imap.fetch([uid], { bodies: '', struct: true, attributes: ['uid', 'flags', 'date'] });
 
                                     // Promise para aguardar a mensagem e seu corpo/parsing
@@ -85,33 +85,33 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                         }, 60 * 1000); // 60 segundos de timeout para toda a leitura da mensagem/corpo
 
                                         f.on('message', (msg, seqno) => {
-                                            console.log(`[${getFormattedTimestamp()}] Objeto de mensagem recebido para UID #${uid} (seqno: ${seqno}).`);
+                                            logger.info(`Objeto de mensagem recebido para UID #${uid} (seqno: ${seqno}).`);
 
                                             msg.once('attributes', (attrs) => {
                                                 if (attrs && attrs.uid) {
                                                     emailReceivedAt = attrs.date; // Definir data a partir dos atributos
                                                 } else {
-                                                    console.warn(`[${getFormattedTimestamp()}] WARN: Não foi possível obter atributos completos para o e-mail UID #${uid}. Usando data atual.`);
+                                                    logger.warn(`WARN: Não foi possível obter atributos completos para o e-mail UID #${uid}. Usando data atual.`);
                                                     emailReceivedAt = new Date(); 
                                                 }
-                                                console.log(`[${getFormattedTimestamp()}] Atributos para e-mail UID: ${uid} processados. Data: ${emailReceivedAt}.`);
+                                                logger.info(`Atributos para e-mail UID: ${uid} processados. Data: ${emailReceivedAt}.`);
                                             });
 
                                             msg.on('body', (stream, info) => {
                                                 let emailBodyBuffer = [];
-                                                console.log(`[${getFormattedTimestamp()}] DEBUG: Stream 'body' iniciada para UID: ${uid}. Info.which: ${info.which}`); 
+                                                logger.debug(`Stream 'body' iniciada para UID: ${uid}. Info.which: ${info.which}`); 
                                                 
                                                 stream.on('data', (chunk) => {
                                                     emailBodyBuffer.push(chunk);
-                                                    console.log(`[${getFormattedTimestamp()}] DEBUG: Recebido chunk de ${chunk.length} bytes para UID: ${uid}. Total em buffer: ${emailBodyBuffer.reduce((acc, curr) => acc + curr.length, 0)} bytes.`);
+                                                     logger.debug(`Recebido chunk de ${chunk.length} bytes para UID: ${uid}. Total em buffer: ${emailBodyBuffer.reduce((acc, curr) => acc + curr.length, 0)} bytes.`);
                                                 });
 
                                                 stream.once('end', async () => {
                                                     const fullEmailBody = Buffer.concat(emailBodyBuffer).toString('utf8');
-                                                    console.log(`[${getFormattedTimestamp()}] DEBUG: Stream 'body' ENDED para UID: ${uid}. Tamanho total: ${fullEmailBody.length} bytes.`); 
+                                                     logger.debug(`Stream 'body' ENDED para UID: ${uid}. Tamanho total: ${fullEmailBody.length} bytes.`); 
                                                     
                                                     try {
-                                                        console.log(`[${getFormattedTimestamp()}] Iniciando simpleParser para UID: ${uid}...`);
+                                                        logger.info(`Iniciando simpleParser para UID: ${uid}...`);
                                                         const parsed = await simpleParser(fullEmailBody);
                                                         clearTimeout(timeoutId);
                                                         resolveMsgBody(parsed); // Resolve a promise principal com o conteúdo parseado
@@ -150,12 +150,12 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                     );
 
                                     if (existingAlarmByEmailUid.length > 0) {
-                                        console.log(`[${getFormattedTimestamp()}] E-mail com UID ${emailUid} (${providerType}) já gerou um alarme (ID: ${existingAlarmByEmailUid[0].alarm_id}). Ignorando nova criação/atualização para evitar duplicação de e-mail.`);
+                                        logger.info(`E-mail com UID ${emailUid} (${providerType}) já gerou um alarme (ID: ${existingAlarmByEmailUid[0].alarm_id}). Ignorando nova criação/atualização para evitar duplicação de e-mail.`);
                                         resolveEmailProcessing(); // Marca como processado com sucesso (deduplicado)
                                         return; 
                                     }
 
-                                    console.log(`[${getFormattedTimestamp()}] Iniciando processamento do e-mail (UID: ${emailUid}) para ${providerType}`);
+                                    logger.info(`Iniciando processamento do e-mail (UID: ${emailUid}) para ${providerType}`);
                                     
                                     const emailContentToParse = (providerType === 'growatt') ? parsedEmailContent.html || '' : parsedEmailContent.text || '';
                                     
@@ -167,13 +167,13 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                             alarmDetails = parserFunction(emailContentToParse); 
                                         }
                                     } else {
-                                        console.warn(`[${getFormattedTimestamp()}] WARN: Corpo do e-mail UID: ${emailUid} está vazio. Não é possível extrair detalhes do alarme.`);
+                                        logger.warn(`WARN: Corpo do e-mail UID: ${emailUid} está vazio. Não é possível extrair detalhes do alarme.`);
                                     }
 
                                     if (alarmDetails) {
                                         const { inverterId, plantName, eventTimeStr, eventDescription, alarmType, severity } = alarmDetails;
 
-                                        console.log(`[${getFormattedTimestamp()}] Email Parsed (${providerType}, UID: ${emailUid}): Planta: ${plantName}, Inversor: ${inverterId}, Evento: "${eventDescription}"`);
+                                        logger.info(`Email Parsed (${providerType}, UID: ${emailUid}): Planta: ${plantName}, Inversor: ${inverterId}, Evento: "${eventDescription}"`);
 
                                         const message = `Evento da ${providerType}: "${eventDescription}" (Planta: ${plantName}, Inversor: ${inverterId})`;
                                         const eventTime = new Date(eventTimeStr);
@@ -191,8 +191,8 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                                                 [plantName, inverterId, alarmType, eventDescription, severity, message, eventTime, emailUid]
                                             );
-                                            const currentAlarmId = insertResult.insertId;
-                                            console.log(`[${getFormattedTimestamp()}] NOVO ALARME REGISTRADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
+                                            const currentAlarmId = insertResult.insertId;                                            
+                                            logger.info(`NOVO ALARME REGISTRADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
                                             
                                             await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME (E-MAIL ${providerType.toUpperCase()})</b> 🚨\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nEvento: <b>${eventDescription}</b>`, adminChatId);
 
@@ -205,10 +205,10 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                                 const ownerChatId = plantInfoRows[0].owner_chat_id;
                                                 if (ownerChatId && String(ownerChatId) !== String(adminChatId)) { 
                                                     const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${eventDescription}`;
-                                                    //await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
-                                                    console.log(`[${getFormattedTimestamp()}] Notificação de NOVO ALARME (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);
+                                                    await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                                                    logger.info(`Notificação de NOVO ALARME (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);
                                                 } else if (String(ownerChatId) === String(adminChatId)) {
-                                                    console.log(`[${getFormattedTimestamp()}] Proprietário da planta ${plantName} é o mesmo que o ADMIN, notificação de alarme enviada apenas uma vez.`);
+                                                    logger.info(`Proprietário da planta ${plantName} é o mesmo que o ADMIN, notificação de alarme enviada apenas uma vez.`);
                                                 }
                                             }
                                         } else {
@@ -217,34 +217,34 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                                 `UPDATE alarms SET triggered_at = ?, email_uid = ? WHERE alarm_id = ?`,
                                                 [eventTime, emailUid, currentAlarmId]
                                             );
-                                            console.log(`[${getFormattedTimestamp()}] ALARME ATIVO ATUALIZADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (Atualizado com E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
+                                            logger.info(`ALARME ATIVO ATUALIZADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (Atualizado com E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
                                         }
 
                                         if (providerType === 'growatt') {
                                             if (alarmDetails && alarmDetails.plantName && alarmDetails.inverterId) {
                                                 await diagnosticLogger.captureAndSaveDiagnosticCodes(connection, alarmDetails.plantName, alarmDetails.inverterId, alarmDetails.eventDescription);
                                             } else {
-                                                console.warn(`[${getFormattedTimestamp()}] WARN: Não foi possível capturar códigos de diagnóstico para e-mail UID: ${emailUid} devido a informações de planta/inversor ausentes.`);
+                                                logger.warn(`WARN: Não foi possível capturar códigos de diagnóstico para e-mail UID: ${emailUid} devido a informações de planta/inversor ausentes.`);
                                             }
                                         }
                                         
                                     } else {
-                                        console.warn(`[${getFormattedTimestamp()}] WARN: AlarmDetails são nulos para e-mail UID: ${emailUid}. O e-mail pode não ter um formato esperado para alarme.`);
+                                        logger.warn(`WARN: AlarmDetails são nulos para e-mail UID: ${emailUid}. O e-mail pode não ter um formato esperado para alarme.`);
                                     }
                                     resolveEmailProcessing(); // Resolve a promessa de processamento individual do e-mail
                                 } catch (mainError) { // Catch principal para erros em qualquer etapa do processMessage
-                                    console.error(`[${getFormattedTimestamp()}] ERRO PRINCIPAL no processamento do e-mail UID: ${emailUid}:`, mainError.message);
+                                    logger.error(`ERRO PRINCIPAL no processamento do e-mail UID: ${emailUid}: ${mainError.message}`);
                                     rejectEmailProcessing(mainError); // Rejeita a promessa de processamento individual
                                 } finally { // Bloco finally principal para marcar o e-mail como processado
                                     // Remove a customTag original (se o processamento foi tentado) - REMOVIDO: Não vamos mais tentar remover a customTag aqui
                                     // Adiciona a flag \Seen (marcar como lido) E nossa flag 'SOLARMON_PROCESSED'
                                     if (idForFlagOperations) { 
                                         imap.addFlags(idForFlagOperations, ['\\Seen', 'SOLARMON_PROCESSED'], (err) => { // ATUALIZADO: Adicionando 'SOLARMON_PROCESSED'
-                                            if (err) console.error(`[${getFormattedTimestamp()}] Erro ao adicionar flags ('\\Seen', 'SOLARMON_PROCESSED') ao e-mail ${idForFlagOperations} (${providerType}, final do processamento):`, err.message);
-                                            else console.log(`[${getFormattedTimestamp()}] E-mail ${idForFlagOperations} para ${providerType} marcado como lido e com flag 'SOLARMON_PROCESSED'.`); // Log atualizado
+                                            if (err) logger.error(`Erro ao adicionar flags ('\\Seen', 'SOLARMON_PROCESSED') ao e-mail ${idForFlagOperations} (${providerType}, final do processamento): ${err.message}`);
+                                            else logger.info(`E-mail ${idForFlagOperations} para ${providerType} marcado como lido e com flag 'SOLARMON_PROCESSED'.`); // Log atualizado
                                         });
                                     } else {
-                                        console.warn(`[${getFormattedTimestamp()}] WARN: Não foi possível realizar operações de flag para e-mail UID #${uid} devido à falta de idForFlagOperations.`);
+                                        logger.warn(`WARN: Não foi possível realizar operações de flag para e-mail UID #${uid} devido à falta de idForFlagOperations.`);
                                     }
                                 }
                             });
@@ -254,15 +254,15 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                         Promise.allSettled(emailProcessingPromises) // Usamos allSettled para que uma falha não cancele todas as outras
                             .then((results) => {
                                 results.forEach((result, index) => {
-                                    if (result.status === 'rejected') {
-                                        console.error(`[${getFormattedTimestamp()}] Processamento do e-mail UID ${uids[index]} falhou:`, result.reason);
+                                    if (result.status === 'rejected') {                                        
+                                        logger.error(`Processamento do e-mail UID ${uids[index]} falhou: ${result.reason}`);
                                     }
                                 });
                                 imap.end();
                                 resolve();
                             })
                             .catch(allPromisesError => {
-                                console.error(`[${getFormattedTimestamp()}] Um erro inesperado ocorreu durante a conclusão dos processamentos de e-mail:`, allPromisesError);
+                                logger.error(`Um erro inesperado ocorreu durante a conclusão dos processamentos de e-mail: ${allPromisesError}`);
                                 imap.end();
                                 reject(allPromisesError);
                             });
@@ -271,25 +271,25 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
             });
 
             imap.once('error', (err) => {
-                console.error(`[${getFormattedTimestamp()}] Erro de conexão IMAP para ${providerType}:`, err);
+                logger.error(`Erro de conexão IMAP para ${providerType}: ${err}`);
                 imap.end();
                 reject(err);
             });
 
             imap.once('end', async () => {
-                console.log(`[${getFormattedTimestamp()}] Conexão IMAP encerrada para ${providerType}.`);
+                logger.info(`Conexão IMAP encerrada para ${providerType}.`);
             });
 
             imap.connect();
         });
 
         await connection.commit();
-        console.log(`[${getFormattedTimestamp()}] Transação MySQL comitada com sucesso para ${providerType}.`);
+        logger.info(`Transação MySQL comitada com sucesso para ${providerType}.`);
 
     } catch (scriptError) {
         if (connection) {
             await connection.rollback();
-            console.log(`[${getFormattedTimestamp()}] Transação MySQL revertida devido a erro para ${providerType}.`);
+            logger.info(`Transação MySQL revertida devido a erro para ${providerType}.`);
         }
         throw scriptError;
     } finally {
@@ -302,4 +302,3 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
 module.exports = {
     processEmails,
 };
-

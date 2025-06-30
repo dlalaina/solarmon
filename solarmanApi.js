@@ -2,7 +2,7 @@
 const axios = require('axios');
 const fs = require('fs').promises;
 const path = require('path');
-const { getFormattedTimestamp } = require('./utils');
+const logger = require('./logger');
 
 const BASE_URL = 'https://globalapi.solarmanpv.com';
 const TOKEN_CACHE_FILE = path.join(__dirname, 'solarman_token_cache.json'); // Arquivo para cache do token
@@ -20,11 +20,11 @@ async function loadTokenCache() {
         if (cache && cache.token && cache.expiry) {
             cachedToken = cache.token;
             tokenExpiry = cache.expiry;
-            console.log(`[${getFormattedTimestamp()}] Token Solarman carregado do cache.`);
+            logger.info('Token Solarman carregado do cache.');
         }
     } catch (error) {
         // Arquivo não encontrado ou erro de parse, ignorar e prosseguir para obter um novo token
-        console.warn(`[${getFormattedTimestamp()}] Não foi possível carregar o cache do token Solarman ou arquivo não encontrado. Um novo token será solicitado.`);
+        logger.warn('Não foi possível carregar o cache do token Solarman ou arquivo não encontrado. Um novo token será solicitado.');
     }
 }
 
@@ -34,9 +34,9 @@ async function loadTokenCache() {
 async function saveTokenCache(token, expiry) {
     try {
         await fs.writeFile(TOKEN_CACHE_FILE, JSON.stringify({ token, expiry }), 'utf8');
-        console.log(`[${getFormattedTimestamp()}] Token Solarman salvo em cache.`);
+        logger.info('Token Solarman salvo em cache.');
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro ao salvar o token Solarman no cache:`, error.message);
+        logger.error(`Erro ao salvar o token Solarman no cache: ${error.message}`);
     }
 }
 
@@ -56,11 +56,11 @@ async function getSolarmanToken(appId, appSecret, email, passwordSha256, orgId) 
     const REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias em milissegundos
 
     if (cachedToken && (tokenExpiry > now + REFRESH_THRESHOLD_MS)) {
-        console.log(`[${getFormattedTimestamp()}] Usando token Solarman em cache. Expira em ${new Date(tokenExpiry).toLocaleString()}.`);
+        logger.info(`Usando token Solarman em cache. Expira em ${new Date(tokenExpiry).toLocaleString()}.`);
         return cachedToken;
     }
 
-    console.log(`[${getFormattedTimestamp()}] Obtendo novo token Solarman...`);
+    logger.info('Obtendo novo token Solarman...');
     try {
         const response = await axios.post(
             `${BASE_URL}/account/v1.0/token?appId=${appId}&language=en`,
@@ -84,17 +84,17 @@ async function getSolarmanToken(appId, appSecret, email, passwordSha256, orgId) 
             // expires_in é uma string no retorno, precisamos parsear para int
             tokenExpiry = now + (parseInt(response.data.expires_in) * 1000);
             await saveTokenCache(cachedToken, tokenExpiry);
-            console.log(`[${getFormattedTimestamp()}] Token Solarman obtido e salvo. Expira em ${new Date(tokenExpiry).toLocaleString()}.`);
+            logger.info(`Token Solarman obtido e salvo. Expira em ${new Date(tokenExpiry).toLocaleString()}.`);
             return cachedToken;
         } else {
             // Se success for false ou access_token não estiver presente, ainda é um erro
-            console.error(`[${getFormattedTimestamp()}] Erro ao obter token Solarman:`, response.data);
+            logger.error(`Erro ao obter token Solarman: ${JSON.stringify(response.data)}`);
             throw new Error(`Falha ao obter token Solarman: ${response.data.msg || 'Resposta inesperada'}`);
         }
         // --- FIM DA MODIFICAÇÃO CHAVE AQUI ---
 
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro na requisição para obter token Solarman:`, error.message);
+        logger.error(`Erro na requisição para obter token Solarman: ${error.message}`);
         throw new Error(`Erro na requisição para obter token Solarman: ${error.message}`);
     }
 }
@@ -106,7 +106,7 @@ async function getSolarmanToken(appId, appSecret, email, passwordSha256, orgId) 
  * @returns {Promise<object>} Os dados atuais do inversor.
  */
 async function getSolarmanCurrentData(token, deviceSn) {
-    console.log(`[${getFormattedTimestamp()}] Buscando dados Solarman para o dispositivo SN: ${deviceSn}...`);
+    logger.info(`Buscando dados Solarman para o dispositivo SN: ${deviceSn}...`);
     try {
         const response = await axios.post(
             `${BASE_URL}/device/v1.0/currentData?language=en`,
@@ -122,14 +122,14 @@ async function getSolarmanCurrentData(token, deviceSn) {
         );
 
         if (response.data && response.data.success) {
-            console.log(`[${getFormattedTimestamp()}] Dados Solarman para ${deviceSn} obtidos com sucesso.`);
+            logger.info(`Dados Solarman para ${deviceSn} obtidos com sucesso.`);
             return response.data;
         } else {
-            console.error(`[${getFormattedTimestamp()}] Erro ao buscar dados Solarman para ${deviceSn}:`, response.data);
+            logger.error(`Erro ao buscar dados Solarman para ${deviceSn}: ${JSON.stringify(response.data)}`);
             throw new Error(`Falha ao buscar dados Solarman para ${deviceSn}: ${response.data.msg || 'Resposta inesperada'}`);
         }
     } catch (error) {
-        console.error(`[${getFormattedTimestamp()}] Erro na requisição para buscar dados Solarman para ${deviceSn}:`, error.message);
+        logger.error(`Erro na requisição para buscar dados Solarman para ${deviceSn}: ${error.message}`);
         throw new Error(`Erro na requisição para buscar dados Solarman para ${deviceSn}: ${error.message}`);
     }
 }

@@ -1,6 +1,5 @@
 // growattApi.js
 const Growatt = require('growatt');
-const { getFormattedTimestamp } = require('./utils');
 
 const growattInstance = new Growatt({ indexCandI: true });
 

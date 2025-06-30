@@ -18,6 +18,8 @@
     "jsonwebtoken": "^9.0.2",
     "mailparser": "^3.7.3",
     "moment-timezone": "^0.6.0",
-    "mysql2": "^3.14.1"
+    "mysql2": "^3.14.1",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0"
   }
 }

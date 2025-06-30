@@ -1,5 +1,5 @@
 // database.js
-const { getFormattedTimestamp } = require('./utils');
+const logger = require('./logger');
 const moment = require('moment-timezone');
 
 /**
@@ -10,7 +10,8 @@ const moment = require('moment-timezone');
  */
 async function insertDataIntoMySQL(pool, data) {
   if (!data || !data.plants || typeof data.plants !== 'object') {
-    throw new Error('Dados inválidos para inserção: estrutura "plants" ausente ou incorreta.');
+    logger.error('Dados inválidos para inserção: estrutura "plants" ausente ou incorreta.');
+    throw new Error('Dados inválidos para inserção.');
   }
 
   let connection;
@@ -37,7 +38,7 @@ async function insertDataIntoMySQL(pool, data) {
       const plantName = plantInfo.plantName;
 
       if (!plantInfo.devices) {
-        console.warn(`[${getFormattedTimestamp()}] Planta ignorada: ${plantName} - sem dados de dispositivos para inserção.`);
+        logger.warn(`Planta ignorada: ${plantName} - sem dados de dispositivos para inserção.`);
         continue;
       }
 
@@ -49,7 +50,7 @@ async function insertDataIntoMySQL(pool, data) {
         const currentPlantConfig = plantConfigsMap.get(plantConfigKey);
 
         if (!currentPlantConfig) {
-          console.warn(`[${getFormattedTimestamp()}] Configuração da planta não encontrada para Inversor: ${deviceId} na Planta: ${plantName}. Ignorando inserção de dados PV.`);
+          logger.warn(`Configuração da planta não encontrada para Inversor: ${deviceId} na Planta: ${plantName}. Ignorando inserção de dados PV.`);
           continue;
         }
 
@@ -64,16 +65,16 @@ async function insertDataIntoMySQL(pool, data) {
           } else if (rawActiveStringsConfig === null || rawActiveStringsConfig === undefined) {
             activeStrings = [];
           } else {
-            console.warn(`[${getFormattedTimestamp()}] active_strings_config com tipo inesperado (${typeof rawActiveStringsConfig}) para Inversor: ${deviceId} na Planta: ${plantName}. Esperado array ou string JSON. Usando array vazio.`);
+            logger.warn(`active_strings_config com tipo inesperado (${typeof rawActiveStringsConfig}) para Inversor: ${deviceId} na Planta: ${plantName}. Esperado array ou string JSON. Usando array vazio.`);
             activeStrings = [];
           }
 
           if (!Array.isArray(activeStrings)) {
-            console.warn(`[${getFormattedTimestamp()}] active_strings_config inválido para Inversor: ${deviceId} na Planta: ${plantName}. Resultado final não é um array. Usando array vazio.`);
+            logger.warn(`active_strings_config inválido para Inversor: ${deviceId} na Planta: ${plantName}. Resultado final não é um array. Usando array vazio.`);
             activeStrings = [];
           }
         } catch (e) {
-          console.error(`[${getFormattedTimestamp()}] Erro ao parsear/processar active_strings_config para Inversor: ${deviceId} na Planta: ${plantName}. Erro: ${e.message}. Usando array vazio.`);
+          logger.error(`Erro ao parsear/processar active_strings_config para Inversor: ${deviceId} na Planta: ${plantName}. Erro: ${e.message}. Usando array vazio.`);
           activeStrings = [];
         }
 
@@ -247,8 +248,8 @@ async function insertDataIntoMySQL(pool, data) {
                          : statusValue === 0 ? 'ONLINE'
                          : statusValue === 1 ? 'AGUARDANDO'
                          : `Desconhecido (${statusValue})`;
-        const updateTimeText = rowData.last_update_time || 'N/A';
-        console.log(`[${getFormattedTimestamp()}] Inserido/Atualizado dado para Planta: ${plantName}, Inversor: ${deviceId} (Status: ${statusText}, Update: ${updateTimeText})`);
+        const updateTimeText = rowData.last_update_time || 'N/A';        
+        logger.info(`Inserido/Atualizado dado para Planta: ${plantName}, Inversor: ${deviceId} (Status: ${statusText}, Update: ${updateTimeText})`);
       }
     }
     await connection.commit();
@@ -256,7 +257,8 @@ async function insertDataIntoMySQL(pool, data) {
     if (connection) {
       await connection.rollback();
     }
-    throw new Error(`Erro ao inserir dados no MySQL: ${dbError.message}`);
+    logger.error(`Erro ao inserir dados no MySQL: ${dbError.stack}`);
+    throw dbError;
   } finally {
     if (connection) {
       connection.release();

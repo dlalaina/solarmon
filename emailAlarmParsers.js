@@ -1,5 +1,5 @@
 // emailAlarmParsers.js
-const { getFormattedTimestamp } = require('./utils');
+const logger = require('./logger');
 
 /**
  * Parses an email HTML body for Growatt alarm details.
@@ -47,7 +47,7 @@ function parseGrowattEmail(emailHtml) {
             severity: severity
         };
     }
-    console.warn(`[${getFormattedTimestamp()}] WARN: Não foi possível extrair todos os detalhes do alarme Growatt do HTML. Verifique o formato do e-mail.`);
+    logger.warn('WARN: Não foi possível extrair todos os detalhes do alarme Growatt do HTML. Verifique o formato do e-mail.');
     return null;
 }
 
@@ -91,4 +91,3 @@ module.exports = {
     parseGrowattEmail,
     parseSolarmanEmail,
 };
-
