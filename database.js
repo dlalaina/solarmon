@@ -3,6 +3,82 @@ const logger = require('./logger')('main');
 const moment = require('moment-timezone');
 
 /**
+ * Mapeia os dados brutos da API Growatt para um formato padronizado.
+ * @param {object} d - O objeto de dados do dispositivo Growatt.
+ * @returns {{sourceData: object, lastUpdateTimeValue: string|null}}
+ */
+function mapGrowattData(d) {
+    const sourceData = {
+        e_today: d.deviceData.eToday,
+        e_total: d.deviceData.eTotal,
+        epv1_today: d.historyLast?.epv1Today,
+        epv2_today: d.historyLast?.epv2Today,
+        epv3_today: d.historyLast?.epv3Today,
+        epv4_today: d.historyLast?.epv4Today,
+        epv5_today: d.historyLast?.epv5Today,
+        epv6_today: d.historyLast?.epv6Today,
+        epv7_today: d.historyLast?.epv7Today,
+        epv8_today: d.historyLast?.epv8Today,
+        bdc_status: d.deviceData.bdcStatus,
+        pto_status: d.deviceData.ptoStatus,
+        status: d.deviceData.status,
+        temperature: d.historyLast?.temperature,
+        temperature2: d.historyLast?.temperature2,
+        temperature3: d.historyLast?.temperature3,
+        temperature4: d.historyLast?.temperature4,
+        temperature5: d.historyLast?.temperature5,
+        update_status: d.deviceData.status,
+        vacr: d.historyLast?.vacr,
+        vacs: d.historyLast?.vacs,
+        vact: d.historyLast?.vact,
+        warn_code: d.historyLast?.warnCode,
+        pid_fault_code: d.historyLast?.pidFaultCode,
+        warn_bit: d.historyLast?.WarnBit,
+        warn_code1: d.historyLast?.warnCode1,
+        fault_code2: d.historyLast?.faultCode2,
+        fault_code1: d.historyLast?.faultCode1,
+        fault_value: d.historyLast?.faultValue,
+    };
+    const lastUpdateTimeValue = d.deviceData.lastUpdateTime ? moment(d.deviceData.lastUpdateTime).format('YYYY-MM-DD HH:mm:ss') : null;
+    return { sourceData, lastUpdateTimeValue };
+}
+
+/**
+ * Mapeia os dados brutos da API Solarman para um formato padronizado.
+ * @param {object} d - O objeto de dados do dispositivo Solarman.
+ * @returns {{sourceData: object, lastUpdateTimeValue: string|null}}
+ */
+function mapSolarmanData(d) {
+    const dataListMap = {};
+    if (d.dataList && Array.isArray(d.dataList)) {
+        d.dataList.forEach(item => {
+            dataListMap[item.key] = item.value;
+        });
+    }
+
+    const sourceData = {
+        e_today: dataListMap.Etdy_ge1,
+        e_total: dataListMap.Et_ge0,
+        status: dataListMap.INV_ST1,
+        temperature2: dataListMap.IGBT_T1,
+        temperature3: dataListMap.T_AC_RDT1,
+        temperature5: dataListMap.T_IDT1,
+        vacr: dataListMap.AV1,
+        vacs: dataListMap.AV2,
+        vact: dataListMap.AV3,
+    };
+
+    let lastUpdateTimeValue = null;
+    if (d.collectionTime != null) {
+        const epochSeconds = parseInt(d.collectionTime);
+        if (!isNaN(epochSeconds)) {
+            lastUpdateTimeValue = moment.unix(epochSeconds).tz('America/Sao_Paulo').format('YYYY-MM-DD HH:mm:ss');
+        }
+    }
+    return { sourceData, lastUpdateTimeValue };
+}
+
+/**
  * Inserts transformed Growatt/Solarman data into the MySQL database.
  * @param {object} pool - The MySQL connection pool.
  * @param {object} data - The data object with a 'plants' property containing plant and device data.
@@ -79,70 +155,13 @@ async function insertDataIntoMySQL(pool, data) {
         }
 
         // --- Mapeamento de Dados Brutos ---
-        let sourceData = {};
-        let lastUpdateTimeValue = null;
+        let sourceData, lastUpdateTimeValue;
 
         if (currentPlantConfig.apiType === 'Solarman') {
-            const dataListMap = {};
-            if (d.dataList && Array.isArray(d.dataList)) {
-                d.dataList.forEach(item => {
-                    dataListMap[item.key] = item.value;
-                });
-            }
-
-            sourceData = {
-                e_today: dataListMap.Etdy_ge1,
-                e_total: dataListMap.Et_ge0,
-                status: dataListMap.INV_ST1, // Inverterstatus como string (Grid connected/Offline)
-                temperature2: dataListMap.IGBT_T1,
-                temperature3: dataListMap.T_AC_RDT1,
-                temperature5: dataListMap.T_IDT1,
-                vacr: dataListMap.AV1,
-                vacs: dataListMap.AV2,
-                vact: dataListMap.AV3,
-            };
-            
-            if (d.collectionTime != null) {
-                const epochSeconds = parseInt(d.collectionTime);
-                if (!isNaN(epochSeconds)) {
-                    lastUpdateTimeValue = moment.unix(epochSeconds).tz('America/Sao_Paulo').format('YYYY-MM-DD HH:mm:ss');
-                }
-            }
-
+            ({ sourceData, lastUpdateTimeValue } = mapSolarmanData(d));
         } else {
-            // Mapeamento para Growatt
-            sourceData = {
-                e_today: d.deviceData.eToday,
-                e_total: d.deviceData.eTotal,
-                epv1_today: d.historyLast?.epv1Today,
-                epv2_today: d.historyLast?.epv2Today,
-                epv3_today: d.historyLast?.epv3Today,
-                epv4_today: d.historyLast?.epv4Today,
-                epv5_today: d.historyLast?.epv5Today,
-                epv6_today: d.historyLast?.epv6Today,
-                epv7_today: d.historyLast?.epv7Today,
-                epv8_today: d.historyLast?.epv8Today,
-                bdc_status: d.deviceData.bdcStatus,
-                pto_status: d.deviceData.ptoStatus,
-                status: d.deviceData.status, // Growatt status é numérico
-                temperature: d.historyLast?.temperature,
-                temperature2: d.historyLast?.temperature2,
-                temperature3: d.historyLast?.temperature3,
-                temperature4: d.historyLast?.temperature4,
-                temperature5: d.historyLast?.temperature5,
-                update_status: d.deviceData.status,
-                vacr: d.historyLast?.vacr,
-                vacs: d.historyLast?.vacs,
-                vact: d.historyLast?.vact,
-                warn_code: d.historyLast?.warnCode,
-                pid_fault_code: d.historyLast?.pidFaultCode,
-                warn_bit: d.historyLast?.WarnBit,
-                warn_code1: d.historyLast?.warnCode1,
-                fault_code2: d.historyLast?.faultCode2,
-                fault_code1: d.historyLast?.faultCode1,
-                fault_value: d.historyLast?.faultValue,
-            };
-            lastUpdateTimeValue = d.deviceData.lastUpdateTime ? moment(d.deviceData.lastUpdateTime).format('YYYY-MM-DD HH:mm:ss') : null;
+            // Mapeamento para Growatt (padrão)
+            ({ sourceData, lastUpdateTimeValue } = mapGrowattData(d));
         }
 
         const rowData = {
