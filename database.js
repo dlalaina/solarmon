@@ -179,7 +179,7 @@ async function insertDataIntoMySQL(pool, data) {
           status: (() => {
               if (currentPlantConfig.apiType === 'Solarman' && typeof sourceData.status === 'string') {
                   const lowerCaseStatus = sourceData.status.toLowerCase();
-                  if (lowerCaseStatus === 'grid connected') return 0; // On-line
+                  if (lowerCaseStatus === 'grid connected') return 1; // On-line, padronizado com Growatt (1)
                   if (lowerCaseStatus === 'offline') return -1; // Off-line, padronizado com Growatt
                   return null; // Retorna null para outros status desconhecidos do Solarman
               }
@@ -243,12 +243,23 @@ async function insertDataIntoMySQL(pool, data) {
         await connection.execute(sql, values);
 
         // Log aprimorado para incluir status e data de atualização
+        const statusMap = {
+          '-1': 'OFFLINE',    // Padrão Growatt e Solarman
+          '0': 'AGUARDANDO',  // Padrão Growatt (Waiting)
+          '1': 'ONLINE'       // Padrão Growatt (Online) e Solarman (Grid-Connected)
+        };
         const statusValue = rowData.status;
-        const statusText = statusValue === -1 ? 'OFFLINE'
-                         : statusValue === 0 ? 'ONLINE'
-                         : statusValue === 1 ? 'AGUARDANDO'
-                         : `Desconhecido (${statusValue})`;
-        const updateTimeText = rowData.last_update_time || 'N/A';        
+
+        let statusText;
+        if (currentPlantConfig.apiType === 'Solarman' && typeof sourceData.status === 'string') {
+            // Para Solarman, o log exibe a string de status original (ex: "Grid connected").
+            statusText = sourceData.status;
+        } else {
+            // Para Growatt (e como fallback), usa o mapa de status numérico.
+            statusText = statusMap[statusValue] || `Desconhecido (${statusValue})`;
+        }
+
+        const updateTimeText = rowData.last_update_time || 'N/A';
         logger.info(`Inserido/Atualizado dado para Planta: ${plantName}, Inversor: ${deviceId} (Status: ${statusText}, Update: ${updateTimeText})`);
       }
     }
