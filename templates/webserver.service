@@ -1,0 +1,16 @@
+[Unit]
+Description=Serviço Webserver node Solarmon
+After=network.target mysqld.service 
+Requires=mysqld.service
+
+[Service]
+User=opc
+Group=opc
+WorkingDirectory=<DIR_DO_PROJETO>
+ExecStart=<PATH_DO_BIN_NODE <DIR_DO_PROJETO>/webserver.js
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
