@@ -11,6 +11,7 @@ const solarmanApi = require('./solarmanApi'); // NOVO: Importa a API Solarman
 const database = require('./database');
 const logger = require('./logger')('main');
 const telegramNotifier = require('./telegramNotifier');
+const { processAllEmails } = require('./processEmailAlarms'); // <-- ADICIONAR
 const { checkAndManageAlarms, GROWATT_RECOVERY_GRACE_PERIOD_MINUTES } = require('./alarmManager');
 
 const gzip = promisify(zlib.gzip);
@@ -301,6 +302,15 @@ async function retrieveAndProcessData() {
         }
     });
     logger.info('Buscas de dados em paralelo concluídas.');
+
+    // --- Processamento de E-mails de Alerta ---
+    try {
+        logger.info('Iniciando processamento de e-mails de alerta...');
+        await processAllEmails(pool, credentials);
+        logger.info('Processamento de e-mails de alerta concluído.');
+    } catch (emailError) {
+        logger.error(`Erro durante o processamento de e-mails, mas o script principal continuará: ${emailError.stack}`);
+    }
 
     // --- Gerenciamento de Alarmes ---
     await checkAndManageAlarms(pool, credentials.telegram.chatId);
