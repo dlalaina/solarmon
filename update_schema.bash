@@ -12,8 +12,8 @@ DB_PASS=$(jq -r '.mysql.password' credentials.json)
 DB_NAME=$(jq -r '.mysql.database' credentials.json)
 DB_HOST=$(jq -r '.mysql.host' credentials.json)
 
-SCHEMA_FILE="schema.sql"
-TEMP_SCHEMA_FILE="schema.sql.tmp"
+SCHEMA_FILE="templates/schema.sql"
+TEMP_SCHEMA_FILE="templates/schema.sql.tmp"
 COMMIT_MSG="Auto-commit: Atualização do schema do banco de dados"
 GIT_AUTHOR_NAME="Cronjob Schema bkp"
 GIT_AUTHOR_EMAIL="cron@solarmon.local"
@@ -34,6 +34,9 @@ fi
 
 echo "----------------------------------------"
 echo "Iniciando verificação de schema em $(date)"
+
+# Garante que o diretório de templates exista
+mkdir -p "$(dirname "$SCHEMA_FILE")"
 
 # --- Lógica ---
 # Exporta a senha como uma variável de ambiente para evitar expô-la na lista de processos.
