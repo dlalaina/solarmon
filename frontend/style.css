@@ -18,8 +18,9 @@ body {
 
 /* --- NOVO: Estilos para o cabeçalho e controle de autenticação --- */
 .dashboard-header {
+    position: relative; /* Adicionado para o posicionamento absoluto dos controles */
     display: flex;
-    justify-content: space-between;
+    justify-content: center; /* Centraliza o título */
     align-items: center;
     margin-bottom: 25px;
     padding-bottom: 15px;
@@ -27,13 +28,14 @@ body {
 }
 
 .dashboard-header h1 {
-    margin: 0; /* Remove margem padrão para alinhar com flexbox */
+    margin: 0;
     color: #61dafb;
     font-weight: 600;
-    text-align: left; /* Alinha o título à esquerda no header */
 }
 
 .auth-controls {
+    position: absolute; /* Posiciona os controles à direita */
+    right: 0;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -393,12 +395,13 @@ table tbody tr:hover {
     }
     .dashboard-header {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center; /* Centraliza os itens na visualização de coluna */
     }
     .auth-controls {
+        position: static; /* Reseta o posicionamento para o fluxo normal */
         margin-top: 15px;
         width: 100%;
-        justify-content: flex-start;
+        justify-content: center; /* Centraliza os botões */
     }
     .auth-button {
         width: auto; /* Deixa o botão se ajustar ao conteúdo */
@@ -441,4 +444,3 @@ table tbody tr:hover {
         font-size: 1.5em;
     }
 }
-
