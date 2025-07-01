@@ -1,0 +1,16 @@
+[Unit]
+Description=Serviço SolarMon
+After=network.target mysqld.service
+Requires=mysqld.service
+
+[Service]
+User=opc
+Group=opc
+WorkingDirectory=<DIR_DO_PROJETO>
+ExecStart=<PATH_DO_BIN_NODE> <DIR_DO_PROJETO>/main.js
+
+Restart=on-failure
+RestartSec=300s
+
+[Install]
+WantedBy=multi-user.target

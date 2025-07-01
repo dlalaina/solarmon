@@ -81,7 +81,7 @@ Desktop.ini
 
 # --- ESPECÍFICOS DO SEU PROJETO SOLARMON ---
 # Arquivo de credenciais (CRÍTICO: nunca versionar senhas e chaves!)
-credentials.json
+/credentials.json
 
 # cache token Solarman
 solarman_token_cache.json
