@@ -122,27 +122,28 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                     consecutiveCount_SD++;
                     consecutiveCountsMap.set(consecutiveKey_SD, consecutiveCount_SD);
 
-                    if (consecutiveCount_SD >= 2) {
-                        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
-                        if (!activeAlarmsMap.has(alarmKey)) {
-                            const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção próxima de zero (${stringCurrentValue.toFixed(2)}A) enquanto outras strings estão ativas (pico: ${greatestCurrentString.toFixed(2)}A).`;
-                            await connection.execute(
-                                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                                [plantName, inverterId, alarmType, alarmSeverity, problemDetailsForAlarm, message]
-                            );
-                            logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsForAlarm})`);
-                            // Enviar para o ADMIN
-                            await telegramNotifier.sendTelegramMessage(`🔴 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔴\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                            // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
-                            if (ownerChatId && ownerChatId !== adminChatId) {
-                                const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A`;
-                                await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
-                                logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
-                            }
+                    const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
+                    // Adiciona a chave ao stillActiveDetectedKeys ASSIM QUE A CONDIÇÃO É DETECTADA
+                    stillActiveDetectedKeys.add(alarmKey);
+
+                    if (activeAlarmsMap.has(alarmKey)) {
+                        logger.info(`STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_SD}/2).`);
+                    } else if (consecutiveCount_SD >= 2) {
+                        const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção próxima de zero (${stringCurrentValue.toFixed(2)}A) enquanto outras strings estão ativas (pico: ${greatestCurrentString.toFixed(2)}A).`;
+                        await connection.execute(
+                            `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+                             VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                            [plantName, inverterId, alarmType, alarmSeverity, problemDetailsForAlarm, message]
+                        );
+                        logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsForAlarm})`);
+                        // Enviar para o ADMIN
+                        await telegramNotifier.sendTelegramMessage(`🔴 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔴\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+                        // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
+                        if (ownerChatId && ownerChatId !== adminChatId) {
+                            const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A`;
+                            await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                            logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                         }
-                        // Se detectado como ativo, adicione-o ao stillActiveDetectedKeys.
-                        stillActiveDetectedKeys.add(alarmKey);
                     } else {
                         logger.info(`STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_SD}/2) - Alarme não disparado ainda.`);
                     }
@@ -161,19 +162,17 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                 }
             } else {
                 // --- SE greatestCurrentString <= 8.0 (Inversor não está produzindo o suficiente) ---
-                // A contagem consecutiva DEVE ser zerada aqui.
-                if (consecutiveCount_SD > 0) {
-                    logger.info(`Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral. Contagem zerada).`);
-                    consecutiveCountsMap.set(consecutiveKey_SD, 0);
-                }
-
-                // SE o alarme STRING-DOWN para esta string já estiver ativo (vindo do DB),
-                // e o inversor estiver com baixa produção geral, ADICIONAR a stillActiveDetectedKeys.
-                // Isso o mantém ativo e impede a limpeza automática.
                 const alarmKey_SD_Full = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
                 if (activeAlarmsMap.has(alarmKey_SD_Full)) {
+                    // Se o alarme JÁ ESTÁ ATIVO, mantemos ele na lista de ainda ativos para evitar que seja limpo.
                     stillActiveDetectedKeys.add(alarmKey_SD_Full);
                     logger.info(`Mantendo alarme STRING-DOWN ativo para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+                } else {
+                    // Se o alarme NÃO ESTÁ ATIVO, mas há uma contagem consecutiva, essa contagem deve ser zerada.
+                    if (consecutiveCount_SD > 0) {
+                        logger.info(`Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral e alarme não ativo. Contagem zerada).`);
+                        consecutiveCountsMap.set(consecutiveKey_SD, 0);
+                    }
                 }
             }
         } // Fim do loop for activeStrings para STRING-DOWN
@@ -204,40 +203,32 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
             let consecutiveCount_TSD = consecutiveCountsMap.get(consecutiveKeyTwo) || 0;
             let consecutiveCount_HSW = consecutiveCountsMap.get(consecutiveKey_HSW) || 0;
 
-            if (greatestCurrentString < 13.0) { // Inverter not producing enough for MPPT partial fault analysis
-                // A contagem consecutiva DEVE ser zerada aqui.
-                if (consecutiveCount_OSD > 0) {
-                    logger.info(`Resetando contagem consecutiva para MPPT-ONE-STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo. Contagem zerada).`);
-                    consecutiveCountsMap.set(consecutiveKeyOne, 0);
-                }
-                if (consecutiveCount_TSD > 0) {
-                    logger.info(`Resetando contagem consecutiva para MPPT-TWO-STRINGS-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo. Contagem zerada).`);
-                    consecutiveCountsMap.set(consecutiveKeyTwo, 0);
-                }
-                if (consecutiveCount_HSW > 0) {
-                    logger.info(`Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Pico de corrente baixo. Contagem zerada).`);
-                    consecutiveCountsMap.set(consecutiveKey_HSW, 0);
-                }
-
-                // SE o alarme já estiver ativo no banco de dados (vindo do DB),
-                // e o inversor estiver com baixa produção geral, ADICIONAR a stillActiveDetectedKeys.
-                // Isso o mantém ativo e impede a limpeza automática.
+            if (greatestCurrentString < 13.0) { // Inversor não está produzindo o suficiente para análise de falha parcial MPPT
                 const alarmKeyOne = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
                 if (activeAlarmsMap.has(alarmKeyOne)) {
                     stillActiveDetectedKeys.add(alarmKeyOne);
                     logger.info(`Mantendo alarme MPPT-ONE-STRING-DOWN ativo para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+                } else if (consecutiveCount_OSD > 0) {
+                    logger.info(`Resetando contagem consecutiva para MPPT-ONE-STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo e alarme não ativo. Contagem zerada).`);
+                    consecutiveCountsMap.set(consecutiveKeyOne, 0);
                 }
 
                 const alarmKeyTwo = `${plantName}_${inverterId}_MPPT-TWO-STRINGS-DOWN_${problemDetailsTwo}`;
                 if (activeAlarmsMap.has(alarmKeyTwo)) {
                     stillActiveDetectedKeys.add(alarmKeyTwo);
                     logger.info(`Mantendo alarme MPPT-TWO-STRINGS-DOWN ativo para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+                } else if (consecutiveCount_TSD > 0) {
+                    logger.info(`Resetando contagem consecutiva para MPPT-TWO-STRINGS-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Pico de corrente baixo e alarme não ativo. Contagem zerada).`);
+                    consecutiveCountsMap.set(consecutiveKeyTwo, 0);
                 }
 
                 const alarmKeyHSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
                 if (activeAlarmsMap.has(alarmKeyHSW)) {
                     stillActiveDetectedKeys.add(alarmKeyHSW);
                     logger.info(`Mantendo alarme HALF-STRING-WORKING ativo para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Inversor com baixa produção geral, alarme existente).`);
+                } else if (consecutiveCount_HSW > 0) {
+                    logger.info(`Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Pico de corrente baixo e alarme não ativo. Contagem zerada).`);
+                    consecutiveCountsMap.set(consecutiveKey_HSW, 0);
                 }
 
                 continue; // Pula a verificação de detecção para esta string com baixa produção geral
@@ -275,30 +266,30 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                     consecutiveCount_TSD++;
                     consecutiveCountsMap.set(consecutiveKeyTwo, consecutiveCount_TSD);
 
-                    if (consecutiveCount_TSD >= 4) { // Requer 4 detecções consecutivas
-                        const alarmType = 'MPPT-TWO-STRINGS-DOWN';
-                        const alarmSeverity = 'High'; // Mais severo
-                        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsTwo}`;
+                    const alarmType = 'MPPT-TWO-STRINGS-DOWN';
+                    const alarmSeverity = 'High'; // Mais severo
+                    const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsTwo}`;
+                    // Adiciona a chave ao stillActiveDetectedKeys ASSIM QUE A CONDIÇÃO É DETECTADA
+                    stillActiveDetectedKeys.add(alarmKey);
 
-                        if (!activeAlarmsMap.has(alarmKey)) {
-                            const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerTwoThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperTwoThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica DUAS STRINGS FORA.`;
-                            await connection.execute(
-                                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                                [plantName, inverterId, alarmType, alarmSeverity, problemDetailsTwo, message]
-                            );
-                            logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsTwo})`);
-                            // Enviar para o ADMIN
-                            await telegramNotifier.sendTelegramMessage(`🔥 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔥\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                            // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
-                            if (ownerChatId && ownerChatId !== adminChatId) {
-                                const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
-                                await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
-                                logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
-                            }
+                    if (activeAlarmsMap.has(alarmKey)) {
+                        logger.info(`MPPT-TWO-STRINGS-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_TSD}/4).`);
+                    } else if (consecutiveCount_TSD >= 4) { // Requer 4 detecções consecutivas
+                        const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerTwoThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperTwoThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica DUAS STRINGS FORA.`;
+                        await connection.execute(
+                            `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+                             VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                            [plantName, inverterId, alarmType, alarmSeverity, problemDetailsTwo, message]
+                        );
+                        logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsTwo})`);
+                        // Enviar para o ADMIN
+                        await telegramNotifier.sendTelegramMessage(`🔥 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔥\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+                        // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
+                        if (ownerChatId && ownerChatId !== adminChatId) {
+                            const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
+                            await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                            logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                         }
-                        // Se detectado como ativo, adicione-o ao stillActiveDetectedKeys.
-                        stillActiveDetectedKeys.add(alarmKey);
                     } else {
                         logger.info(`MPPT-TWO-STRINGS-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_TSD}/4) - Alarme não disparado ainda.`);
                     }
@@ -325,30 +316,29 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                         consecutiveCount_OSD++;
                         consecutiveCountsMap.set(consecutiveKeyOne, consecutiveCount_OSD);
 
-                        if (consecutiveCount_OSD >= 4) { // Requer 4 detecções consecutivas
-                            const alarmType = 'MPPT-ONE-STRING-DOWN';
-                            const alarmSeverity = 'Medium';
-                            const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsOne}`;
+                        const alarmType = 'MPPT-ONE-STRING-DOWN';
+                        const alarmSeverity = 'Medium';
+                        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${problemDetailsOne}`;
+                        // Adiciona a chave ao stillActiveDetectedKeys ASSIM QUE A CONDIÇÃO É DETECTADA
+                        stillActiveDetectedKeys.add(alarmKey);
 
-                            if (!activeAlarmsMap.has(alarmKey)) {
-                                const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerOneThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperOneThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica UMA STRING FORA.`;
-                                await connection.execute(
-                                    `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                                     VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                                    [plantName, inverterId, alarmType, alarmSeverity, problemDetailsOne, message]
-                                );
-                                logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsOne})`);
-                                // Enviar para o ADMIN
-                                await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                                // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
-                                if (ownerChatId && ownerChatId !== adminChatId) {
-                                    const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
-                                    await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
-                                    logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
-                                }
+                        if (activeAlarmsMap.has(alarmKey)) {
+                            logger.info(`MPPT-ONE-STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_OSD}/4).`);
+                        } else if (consecutiveCount_OSD >= 4) { // Requer 4 detecções consecutivas
+                            const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerOneThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperOneThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica UMA STRING FORA.`;
+                            await connection.execute(
+                                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                                [plantName, inverterId, alarmType, alarmSeverity, problemDetailsOne, message]
+                            );
+                            logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsOne})`);
+                            // Enviar para o ADMIN
+                            await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+                            if (ownerChatId && ownerChatId !== adminChatId) {
+                                const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
+                                await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                                logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                             }
-                            // Se detectado como ativo, adicione-o ao stillActiveDetectedKeys.
-                            stillActiveDetectedKeys.add(alarmKey);
                         } else {
                             logger.info(`MPPT-ONE-STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_OSD}/4) - Alarme não disparado ainda.`);
                         }
@@ -393,28 +383,28 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                         consecutiveCount_HSW++;
                         consecutiveCountsMap.set(consecutiveKey_HSW, consecutiveCount_HSW);
 
-                        if (consecutiveCount_HSW >= 4) {
-                            const alarmType = 'HALF-STRING-WORKING';
-                            const alarmSeverity = 'Medium';
-                            const alarmKey = `${plantName}_${inverterId}_${alarmType}_${halfWorkingProblemDetails}`;
+                        const alarmType = 'HALF-STRING-WORKING';
+                        const alarmSeverity = 'Medium';
+                        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${halfWorkingProblemDetails}`;
+                        // Adiciona a chave ao stillActiveDetectedKeys ASSIM QUE A CONDIÇÃO É DETECTADA
+                        stillActiveDetectedKeys.add(alarmKey);
 
-                            if (!activeAlarmsMap.has(alarmKey)) {
-                                const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
-                                await connection.execute(
-                                    `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                                     VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                                    [plantName, inverterId, alarmType, alarmSeverity, halfWorkingProblemDetails, message]
-                                );
-                                logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
-                                await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                                if (ownerChatId && ownerChatId !== adminChatId) {
-                                    const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A`;
-                                    await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
-                                    logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
-                                }
+                        if (activeAlarmsMap.has(alarmKey)) {
+                            logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_HSW}/4).`);
+                        } else if (consecutiveCount_HSW >= 4) {
+                            const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
+                            await connection.execute(
+                                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                                [plantName, inverterId, alarmType, alarmSeverity, halfWorkingProblemDetails, message]
+                            );
+                            logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
+                            await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+                            if (ownerChatId && ownerChatId !== adminChatId) {
+                                const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A`;
+                                await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                                logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                             }
-                            // Se detectado como ativo, adicione-o ao stillActiveDetectedKeys.
-                            stillActiveDetectedKeys.add(alarmKey);
                         } else {
                             logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/4) - Alarme não disparado ainda.`);
                         }
@@ -639,6 +629,8 @@ async function checkAndManageAlarms(pool, adminChatId) {
         const stillActiveDetectedKeys = new Set(); // Resetar para cada execução
 
         // 2. Obter dados de solar_data para detecção de alarmes de string/MPPT
+        // A consulta agora busca todos os dados do dia para inversores que não estão offline,
+        // permitindo que a lógica interna de processStringAndMpptAlarms decida a relevância.
         const [dayIpvAlarms] = await connection.execute(`
             SELECT
                 sd.plant_name,
@@ -686,17 +678,7 @@ async function checkAndManageAlarms(pool, adminChatId) {
             LEFT JOIN plant_info pi ON sd.plant_name = pi.plant_name
             WHERE
                 sd.last_update_time >= CURDATE()
-                AND (
-                    COALESCE(sd.currentString1, 0) <= 0.5 OR COALESCE(sd.currentString2, 0) <= 0.5 OR COALESCE(sd.currentString3, 0) <= 0.5 OR COALESCE(sd.currentString4, 0) <= 0.5 OR
-                    COALESCE(sd.currentString5, 0) <= 0.5 OR COALESCE(sd.currentString6, 0) <= 0.5 OR COALESCE(sd.currentString7, 0) <= 0.5 OR COALESCE(sd.currentString8, 0) <= 0.5 OR
-                    COALESCE(sd.currentString9, 0) <= 0.5 OR COALESCE(sd.currentString10, 0) <= 0.5 OR COALESCE(sd.currentString11, 0) <= 0.5 OR COALESCE(sd.currentString12, 0) <= 0.5 OR
-                    COALESCE(sd.currentString13, 0) <= 0.5 OR COALESCE(sd.currentString14, 0) <= 0.5 OR COALESCE(sd.currentString15, 0) <= 0.5 OR COALESCE(sd.currentString16, 0) <= 0.5
-                ) OR GREATEST(
-                    COALESCE(sd.currentString1, 0), COALESCE(sd.currentString2, 0), COALESCE(sd.currentString3, 0), COALESCE(sd.currentString4, 0),
-                    COALESCE(sd.currentString5, 0), COALESCE(sd.currentString6, 0), COALESCE(sd.currentString7, 0), COALESCE(sd.currentString8, 0),
-                    COALESCE(sd.currentString9, 0), COALESCE(sd.currentString10, 0), COALESCE(sd.currentString11, 0), COALESCE(sd.currentString12, 0),
-                    COALESCE(sd.currentString13, 0), COALESCE(sd.currentString14, 0), COALESCE(sd.currentString15, 0), COALESCE(sd.currentString16, 0)
-                ) >= 13.0
+                AND sd.status <> -1 -- Inclui todos os inversores que não estão explicitamente offline hoje
             ORDER BY sd.last_update_time DESC
             LIMIT 100
         `);
@@ -741,3 +723,4 @@ module.exports = {
     checkAndManageAlarms,
     GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, // Exporta a constante
 };
+
