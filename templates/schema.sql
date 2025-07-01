@@ -16,6 +16,14 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
+-- Current Database: `solarmon`
+--
+
+CREATE DATABASE /*!32312 IF NOT EXISTS*/ `solarmon` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
+
+USE `solarmon`;
+
+--
 -- Table structure for table `alarms`
 --
 
@@ -235,4 +243,4 @@ CREATE TABLE `solar_data` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-07-01 20:01:01
+-- Dump completed on 2025-07-01 20:06:45
