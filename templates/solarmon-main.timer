@@ -1,11 +1,9 @@
 [Unit]
 Description=Executa o serviço SolarMon a cada 5 minutos
-Requires=solarmon-main.service
 
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=5min
 Unit=solarmon-main.service
-
 [Install]
 WantedBy=timers.target

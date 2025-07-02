@@ -1,16 +1,18 @@
 [Unit]
-Description=Serviço Webserver node Solarmon
-After=network.target mysqld.service 
-Requires=mysqld.service
+Description=SolarMon Web Server
+After=network.target mysql.service
 
 [Service]
-User=opc
-Group=opc
-WorkingDirectory=<DIR_DO_PROJETO>
-ExecStart=<PATH_DO_BIN_NODE <DIR_DO_PROJETO>/webserver.js
-
-Restart=always
-RestartSec=5s
+Type=simple
+User=solarmon
+Group=solarmon
+WorkingDirectory=%PROJECT_PATH%
+ExecStart=%NODE_PATH% %PROJECT_PATH%/webserver.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=solarmon-web
 
 [Install]
 WantedBy=multi-user.target

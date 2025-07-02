@@ -1,16 +1,13 @@
 [Unit]
-Description=Serviço SolarMon
-After=network.target mysqld.service
-Requires=mysqld.service
+Description=SolarMon Data Collector Service
+After=network.target mysql.service
 
 [Service]
-User=opc
-Group=opc
-WorkingDirectory=<DIR_DO_PROJETO>
-ExecStart=<PATH_DO_BIN_NODE> <DIR_DO_PROJETO>/main.js
-
-Restart=on-failure
-RestartSec=300s
-
-[Install]
-WantedBy=multi-user.target
+Type=oneshot
+User=solarmon
+Group=solarmon
+WorkingDirectory=%PROJECT_PATH%
+ExecStart=%NODE_PATH% %PROJECT_PATH%/main.js
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=solarmon-main
