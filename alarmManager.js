@@ -628,59 +628,44 @@ async function checkAndManageAlarms(pool, adminChatId) {
         const consecutiveCountsMap = await getConsecutiveCountsFromDb(connection);
         const stillActiveDetectedKeys = new Set(); // Resetar para cada execução
 
-        // 2. Obter dados de solar_data para detecção de alarmes de string/MPPT
-        // A consulta agora busca todos os dados do dia para inversores que não estão offline,
-        // permitindo que a lógica interna de processStringAndMpptAlarms decida a relevância.
+        // 2. Obter TODOS os inversores configurados e seus dados MAIS RECENTES de solar_data.
+        // A consulta usa um LEFT JOIN direto de plant_config para solar_data.
+        // Isso é eficiente porque a tabela solar_data, devido ao ON DUPLICATE KEY UPDATE,
+        // já contém apenas o registro mais recente por inversor.
+        // Isso garante que todos os inversores, mesmo os offline ou sem dados recentes,
+        // sejam incluídos na análise para que a lógica a jusante decida se um alarme
+        // existente deve ser mantido ou limpo.
         const [dayIpvAlarms] = await connection.execute(`
             SELECT
-                sd.plant_name,
-                sd.inverter_id,
-                CAST(sd.currentString1 AS DECIMAL(10,2)) AS currentString1,
-                CAST(sd.currentString2 AS DECIMAL(10,2)) AS currentString2,
-                CAST(sd.currentString3 AS DECIMAL(10,2)) AS currentString3,
-                CAST(sd.currentString4 AS DECIMAL(10,2)) AS currentString4,
-                CAST(sd.currentString5 AS DECIMAL(10,2)) AS currentString5,
-                CAST(sd.currentString6 AS DECIMAL(10,2)) AS currentString6,
-                CAST(sd.currentString7 AS DECIMAL(10,2)) AS currentString7,
-                CAST(sd.currentString8 AS DECIMAL(10,2)) AS currentString8,
-                CAST(sd.currentString9 AS DECIMAL(10,2)) AS currentString9,
-                CAST(sd.currentString10 AS DECIMAL(10,2)) AS currentString10,
-                CAST(sd.currentString11 AS DECIMAL(10,2)) AS currentString11,
-                CAST(sd.currentString12 AS DECIMAL(10,2)) AS currentString12,
-                CAST(sd.currentString13 AS DECIMAL(10,2)) AS currentString13,
-                CAST(sd.currentString14 AS DECIMAL(10,2)) AS currentString14,
-                CAST(sd.currentString15 AS DECIMAL(10,2)) AS currentString15,
-                CAST(sd.currentString16 AS DECIMAL(10,2)) AS currentString16,
-                CAST(GREATEST(
-                    COALESCE(sd.currentString1, 0),
-                    COALESCE(sd.currentString2, 0),
-                    COALESCE(sd.currentString3, 0),
-                    COALESCE(sd.currentString4, 0),
-                    COALESCE(sd.currentString5, 0),
-                    COALESCE(sd.currentString6, 0),
-                    COALESCE(sd.currentString7, 0),
-                    COALESCE(sd.currentString8, 0),
-                    COALESCE(sd.currentString9, 0),
-                    COALESCE(sd.currentString10, 0),
-                    COALESCE(sd.currentString11, 0),
-                    COALESCE(sd.currentString12, 0),
-                    COALESCE(sd.currentString13, 0),
-                    COALESCE(sd.currentString14, 0),
-                    COALESCE(sd.currentString15, 0),
-                    COALESCE(sd.currentString16, 0)
-                ) AS DECIMAL(10,2)) AS greatest_current_string,
+                pc.plant_name,
+                pc.inverter_id,
                 pc.string_grouping_type,
                 pc.active_strings_config,
                 pc.api_type,
-                pi.owner_chat_id
-            FROM solar_data sd
-            JOIN plant_config pc ON sd.plant_name = pc.plant_name AND sd.inverter_id = pc.inverter_id
-            LEFT JOIN plant_info pi ON sd.plant_name = pi.plant_name
-            WHERE
-                sd.last_update_time >= CURDATE()
-                AND sd.status <> -1 -- Inclui todos os inversores que não estão explicitamente offline hoje
-            ORDER BY sd.last_update_time DESC
-            LIMIT 100
+                pi.owner_chat_id,
+                sd.status,
+                sd.currentString1, sd.currentString2, sd.currentString3, sd.currentString4,
+                sd.currentString5, sd.currentString6, sd.currentString7, sd.currentString8,
+                sd.currentString9, sd.currentString10, sd.currentString11, sd.currentString12,
+                sd.currentString13, sd.currentString14, sd.currentString15, sd.currentString16,
+                CAST(GREATEST(
+                    COALESCE(sd.currentString1, 0), COALESCE(sd.currentString2, 0),
+                    COALESCE(sd.currentString3, 0), COALESCE(sd.currentString4, 0),
+                    COALESCE(sd.currentString5, 0), COALESCE(sd.currentString6, 0),
+                    COALESCE(sd.currentString7, 0), COALESCE(sd.currentString8, 0),
+                    COALESCE(sd.currentString9, 0), COALESCE(sd.currentString10, 0),
+                    COALESCE(sd.currentString11, 0), COALESCE(sd.currentString12, 0),
+                    COALESCE(sd.currentString13, 0), COALESCE(sd.currentString14, 0),
+                    COALESCE(sd.currentString15, 0), COALESCE(sd.currentString16, 0)
+                ) AS DECIMAL(10,2)) AS greatest_current_string
+            FROM
+                plant_config pc
+            LEFT JOIN
+                solar_data sd ON pc.plant_name = sd.plant_name AND pc.inverter_id = sd.inverter_id
+            LEFT JOIN
+                plant_info pi ON pc.plant_name = pi.plant_name
+            ORDER BY
+                pc.plant_name, pc.inverter_id;
         `);
 
         // Preparar dados (conversão de tipos)
@@ -723,4 +708,3 @@ module.exports = {
     checkAndManageAlarms,
     GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, // Exporta a constante
 };
-
