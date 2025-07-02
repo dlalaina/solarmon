@@ -180,6 +180,13 @@ async function processGrowattData(dbPool) {
         const growatt = await growattApi.login(credentials.growatt.user, credentials.growatt.password);
         logger.info('Login Growatt realizado com sucesso.');
 
+        // Buscar a configuração local para verificar se os inversores da API estão configurados
+        const plantConfigs = await getPlantConfig(dbPool);
+        const configuredInverters = new Set(
+            plantConfigs.map(pc => `${pc.plant_name}_${pc.inverter_id}`)
+        );
+
+        // Obter todos os dados da planta da API Growatt
         const growattOptions = {
             plantData: true,
             deviceData: true,
@@ -188,6 +195,21 @@ async function processGrowattData(dbPool) {
             chartLastArray: true,
         };
         const getAllPlantDataRaw = await growattApi.getAllPlantData(growatt, growattOptions);
+
+        // Iterar sobre os dados da API para encontrar inversores não configurados
+        for (const plantData of Object.values(getAllPlantDataRaw)) {
+            const plantName = plantData.plantName;
+            if (plantData.devices) {
+                for (const deviceData of Object.values(plantData.devices)) {
+                    const inverterId = deviceData.deviceSn;
+                    const configKey = `${plantName}_${inverterId}`;
+                    if (!configuredInverters.has(configKey)) {
+                        logger.warn(`Planta ${plantName} Inversor ${inverterId} (Growatt) não configurado na tabela plant_config.`);
+                    }
+                }
+            }
+        }
+
         const growattDataForProcessing = { plants: getAllPlantDataRaw };
 
         const growattFullFilePath = path.join(raw_data_dir, `growatt_full_${getFormattedDateForFilename()}.json`);
