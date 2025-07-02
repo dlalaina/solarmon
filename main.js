@@ -200,8 +200,11 @@ async function processGrowattData(dbPool) {
         for (const plantData of Object.values(getAllPlantDataRaw)) {
             const plantName = plantData.plantName;
             if (plantData.devices) {
-                for (const deviceData of Object.values(plantData.devices)) {
-                    const inverterId = deviceData.deviceSn;
+                // A chave do objeto 'devices' é o serial number (inverter_id).
+                // O código anterior iterava sobre os valores (Object.values) e tentava ler
+                // uma propriedade 'deviceSn' que não existe no objeto de valor, resultando em 'undefined'.
+                // A correção é iterar sobre as chaves (Object.keys) para obter o inverterId diretamente.
+                for (const inverterId of Object.keys(plantData.devices)) {
                     const configKey = `${plantName}_${inverterId}`;
                     if (!configuredInverters.has(configKey)) {
                         logger.warn(`Planta ${plantName} Inversor ${inverterId} (Growatt) não configurado na tabela plant_config.`);
