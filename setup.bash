@@ -107,13 +107,13 @@ create_solarmon_user() {
 install_node_nvm() {
     log_info "Verificando e instalando Node.js e npm..."
 
-    # Instalar dependências para compilação e nvm
-    log_info "Instalando dependências necessárias (git, curl, build-essential/gcc-c++)..."
+    # Instalar dependências para compilação, nvm e outras ferramentas (jq)
+    log_info "Instalando dependências necessárias (git, curl, build-essential/gcc-c++, jq)..."
     if [ "$OS_FAMILY" == "debian" ]; then
         $PKG_MANAGER update -y >/dev/null
-        $PKG_MANAGER install -y curl git build-essential
+        $PKG_MANAGER install -y curl git build-essential jq
     else # redhat
-        $PKG_MANAGER install -y curl git gcc-c++ make
+        $PKG_MANAGER install -y curl git gcc-c++ make jq
     fi
 
     # Tenta encontrar node e npm no PATH do sistema
@@ -389,7 +389,28 @@ setup_systemd_services() {
     log_info "Serviços do systemd configurados com sucesso."
 }
 
-# --- 9. Verificação Final e Ativação dos Serviços ---
+# --- 9. Configuração do Cron Job ---
+setup_cron_job() {
+    log_info "Configurando o cron job para o backup do schema do banco de dados..."
+
+    # O comando a ser executado
+    local CRON_CMD="${PROJECT_PATH}/update_schema.bash >> ${PROJECT_PATH}/logs/schema_update.log 2>&1"
+    # A linha completa do cron
+    local CRON_JOB="1 * * * * ${CRON_CMD}"
+
+    # Verifica se o cron job já existe para o usuário 'solarmon'
+    # Usamos grep -F para tratar a string como literal e evitar problemas com '*'
+    if crontab -u solarmon -l 2>/dev/null | grep -Fq -- "$CRON_CMD"; then
+        log_info "O cron job para o backup do schema já está configurado."
+    else
+        log_info "Adicionando o cron job para o usuário 'solarmon'..."
+        # Adiciona o novo cron job sem remover os existentes
+        (crontab -u solarmon -l 2>/dev/null; echo "$CRON_JOB") | crontab -u solarmon -
+        log_info "Cron job adicionado com sucesso."
+    fi
+}
+
+# --- 10. Verificação Final e Ativação dos Serviços ---
 finalize_and_start_services() {
     log_info "Verificando o preenchimento do arquivo 'credentials.json'..."
 
@@ -419,6 +440,7 @@ main() {
     setup_mysql_database
     install_and_configure_webserver
     setup_systemd_services
+    setup_cron_job
     finalize_and_start_services
 }
 
