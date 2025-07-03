@@ -4,19 +4,19 @@ require('winston-daily-rotate-file');
 const path = require('path');
 
 const logsDir = path.join(__dirname, 'logs');
-const { combine, timestamp, printf, colorize } = winston.format;
+const { combine, timestamp, printf, colorize, label } = winston.format;
 
 // Cache para armazenar as instâncias de logger
 const loggers = {};
 
 // Formato customizado para o console
-const consoleFormat = printf(({ level, message, timestamp }) => {
-  return `[${timestamp}] ${level}: ${message}`;
+const consoleFormat = printf(({ level, message, label, timestamp }) => {
+  return `[${timestamp}] [${label}] ${level}: ${message}`;
 });
 
 // Formato para os arquivos
-const fileFormat = printf(({ message, timestamp }) => {
-  return `[${timestamp}] ${message}`;
+const fileFormat = printf(({ level, message, label, timestamp }) => {
+  return `[${timestamp}] [${label}] ${level}: ${message}`;
 });
 
 /**
@@ -33,16 +33,20 @@ function getLogger(category = 'main') {
   const logger = winston.createLogger({
     level: 'info',
     format: combine(
+      label({ label: category.toUpperCase() }),
       timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
       fileFormat
     ),
     transports: [
       new winston.transports.DailyRotateFile({
-        filename: path.join(logsDir, `${category}-%DATE%.log`), // Nome do arquivo baseado na categoria
+        filename: path.join(logsDir, `${category}-%DATE%.log`),
         datePattern: 'YYYY-MM-DD',
-        zippedArchive: true,
-        maxSize: '20m',
-        maxFiles: '90d'
+        createSymlink: true,
+        symlinkName: `${category}.log`,
+        // A compactação (zippedArchive) e a exclusão (maxFiles) agora são gerenciadas
+        // manualmente pela função manageLogFiles em main.js para evitar race conditions
+        // e garantir um comportamento consistente para todos os tipos de log.
+        maxSize: '20m' // Mantemos o maxSize para evitar arquivos de log diários excessivamente grandes.
       })
     ]
   });
@@ -50,12 +54,10 @@ function getLogger(category = 'main') {
   // Adiciona console transport para ambientes de não-produção
   if (process.env.NODE_ENV !== 'production') {
     logger.add(new winston.transports.Console({
+      level: 'error', // <--- Alteração: Log apenas erros no console
       format: combine(
         colorize(),
-        printf(({ level, message, timestamp }) => {
-          // Adiciona a categoria ao log do console para clareza
-          return `[${timestamp}] [${category.toUpperCase()}] ${level}: ${message}`;
-        })
+        consoleFormat
       )
     }));
   }

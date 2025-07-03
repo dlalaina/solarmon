@@ -51,6 +51,63 @@ let pool; // Declarado aqui para ser acessível em outras funções
 
 // Diretórios
 const raw_data_dir = path.join(__dirname, 'raw_data'); // Define raw_data_dir aqui
+const logs_dir = path.join(__dirname, 'logs'); // Define logs_dir aqui
+
+/**
+ * Manages log files: compresses old .log files and deletes files older than 90 days.
+ * This is necessary because short-lived cron processes may not trigger winston's internal rotation/cleanup.
+ */
+async function manageLogFiles() {
+    logger.info('Iniciando gerenciamento de arquivos de log...');
+    try {
+        await fs.mkdir(logs_dir, { recursive: true }); // Ensure logs directory exists
+        const files = await fs.readdir(logs_dir);
+        const now = new Date();
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(now.getDate() - 90);
+
+        // Get today's date string in YYYY-MM-DD format to avoid compressing the current day's log
+        const todayDateString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+        for (const file of files) {
+            const filePath = path.join(logs_dir, file);
+
+            // Ignorar symlinks para evitar processá-los como arquivos
+            const stats = await fs.lstat(filePath);
+            if (stats.isSymbolicLink() || file.startsWith('schema_update')) {
+                continue;
+            }
+
+            // 1. Deletar arquivos com mais de 90 dias (usa mtime do arquivo real)
+            if (stats.mtime < ninetyDaysAgo) {
+                await fs.unlink(filePath);
+                logger.info(`Arquivo de log antigo deletado: ${file}`);
+                continue; // Pula para o próximo arquivo
+            }
+
+            // 2. Compactar arquivos .log de dias anteriores.
+            // O padrão de arquivo agora é 'categoria-YYYY-MM-DD.log'.
+            const logFileRegex = /(.+)-(\d{4}-\d{2}-\d{2})\.log$/;
+            const match = file.match(logFileRegex);
+
+            // Apenas processa o arquivo se ele corresponder ao padrão E a data não for a de hoje.
+            if (match && match[2] !== todayDateString) {
+                try {
+                    const fileContent = await fs.readFile(filePath);
+                    const compressedContent = await gzip(fileContent);
+                    await fs.writeFile(`${filePath}.gz`, compressedContent);
+                    logger.info(`Arquivo de log compactado: ${file} -> ${file}.gz`);
+                    await fs.unlink(filePath);
+                } catch (compressionError) {
+                    logger.error(`Erro ao compactar ou remover o arquivo de log ${file}: ${compressionError.message}`);
+                }
+            }
+        }
+    } catch (error) {
+        logger.error(`Erro ao gerenciar arquivos de log: ${error.message}`);
+    }
+    logger.info('Gerenciamento de arquivos de log concluído.');
+}
 
 /**
  * Manages raw data files: compresses yesterday's files and deletes files older than 30 days.
@@ -357,6 +414,9 @@ async function retrieveAndProcessData() {
 
     // Configura o notifier do Telegram para usar as credenciais
     telegramNotifier.init(credentials.telegram.botToken, credentials.telegram.chatId);
+
+    // Executa o gerenciamento dos arquivos de log
+    await manageLogFiles();
 
     // Executa o gerenciamento dos arquivos de dados brutos
     await manageRawDataFiles();
