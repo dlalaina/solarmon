@@ -44,8 +44,9 @@ mkdir -p "$(dirname "$SCHEMA_FILE")"
 export MYSQL_PWD="$DB_PASS"
 
 # 1. Gera um novo dump do schema em um arquivo temporário
-# O uso de --column-statistics=0 é recomendado para versões mais novas do MySQL 8 para evitar diffs desnecessários.
-mysqldump --no-data --no-tablespaces --column-statistics=0 -h"$DB_HOST" -u"$DB_USER" --databases "$DB_NAME" > "$TEMP_SCHEMA_FILE"
+# --skip-dump-date: Omite o timestamp no final do arquivo, evitando falsos positivos no diff.
+# --column-statistics=0: Recomendado para MySQL 8+ para evitar diffs desnecessários.
+mysqldump --no-data --no-tablespaces --column-statistics=0 --skip-dump-date -h"$DB_HOST" -u"$DB_USER" --databases "$DB_NAME" > "$TEMP_SCHEMA_FILE"
 
 # Verifica se o mysqldump foi bem-sucedido
 if [ $? -ne 0 ]; then
