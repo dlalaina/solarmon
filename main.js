@@ -253,19 +253,37 @@ async function processGrowattData(dbPool) {
         };
         const getAllPlantDataRaw = await growattApi.getAllPlantData(growatt, growattOptions);
 
-        // Iterar sobre os dados da API para encontrar inversores não configurados
+        // --- VERIFICAÇÃO 1: Inversores na API que não estão no banco de dados ---
         for (const plantData of Object.values(getAllPlantDataRaw)) {
             const plantName = plantData.plantName;
             if (plantData.devices) {
-                // A chave do objeto 'devices' é o serial number (inverter_id).
-                // O código anterior iterava sobre os valores (Object.values) e tentava ler
-                // uma propriedade 'deviceSn' que não existe no objeto de valor, resultando em 'undefined'.
-                // A correção é iterar sobre as chaves (Object.keys) para obter o inverterId diretamente.
                 for (const inverterId of Object.keys(plantData.devices)) {
                     const configKey = `${plantName}_${inverterId}`;
                     if (!configuredInverters.has(configKey)) {
-                        logger.warn(`Planta ${plantName} Inversor ${inverterId} (Growatt) não configurado na tabela plant_config.`);
+                        logger.warn(`Inversor da API não configurado localmente: Planta ${plantName}, Inversor ${inverterId} (Growatt). Considere adicioná-lo à plant_config.`);
                     }
+                }
+            }
+        }
+
+        // --- VERIFICAÇÃO 2: Inversores no banco de dados que não vieram na API ---
+        // Criar um set de inversores que vieram da API para busca rápida
+        const apiInverters = new Set();
+        for (const plantData of Object.values(getAllPlantDataRaw)) {
+            if (plantData.devices) {
+                for (const inverterId of Object.keys(plantData.devices)) {
+                    const apiConfigKey = `${plantData.plantName}_${inverterId}`;
+                    apiInverters.add(apiConfigKey);
+                }
+            }
+        }
+        // Iterar sobre a configuração local e verificar se cada inversor está no set da API
+        for (const config of plantConfigs) {
+            // Verificar apenas para inversores do tipo Growatt
+            if (config.api_type === 'Growatt') {
+                const configKey = `${config.plant_name}_${config.inverter_id}`;
+                if (!apiInverters.has(configKey)) {
+                    logger.warn(`Inversor configurado não encontrado na API Growatt: Planta: ${config.plant_name}, Inversor: ${config.inverter_id}.`);
                 }
             }
         }
