@@ -177,54 +177,6 @@ async function getPlantConfig(dbPool) {
     }
 }
 
-// NOVO: Função para atualizar o status do servidor Growatt no banco de dados
-async function updateGrowattServerStatus(dbPool, isSuccess) {
-    let connection;
-    try {
-        connection = await dbPool.getConnection();
-        await connection.beginTransaction();
-
-        if (isSuccess) {
-            // Se a chamada à API da Growatt foi bem-sucedida
-            await connection.execute(`
-                INSERT INTO growatt_server_status (id, last_successful_api_call, last_api_status, recovery_grace_period_until)
-                VALUES (1, NOW(), 'OK', NULL)
-                ON DUPLICATE KEY UPDATE
-                    last_successful_api_call = NOW(),
-                    last_api_status = 'OK',
-                    recovery_grace_period_until = CASE
-                        WHEN last_api_status = 'ERROR' THEN NOW() + INTERVAL ? MINUTE
-                        ELSE recovery_grace_period_until
-                    END;
-            `, [GROWATT_RECOVERY_GRACE_PERIOD_MINUTES]);
-            logger.info('Status do servidor Growatt atualizado para SUCESSO.');
-        } else {
-            // Se a chamada à API da Growatt falhou
-            await connection.execute(`
-                INSERT INTO growatt_server_status (id, last_successful_api_call, last_api_status, recovery_grace_period_until)
-                VALUES (1, NULL, 'ERROR', NULL)
-                ON DUPLICATE KEY UPDATE
-                    last_api_status = 'ERROR',
-                    recovery_grace_period_until = NULL;
-            `);
-            logger.error('Status do servidor Growatt atualizado para ERRO.');
-        }
-
-        await connection.commit();
-    } catch (error) {
-        if (connection) {
-            await connection.rollback();
-        }
-        logger.error(`Erro ao atualizar o status do servidor Growatt no banco de dados: ${error.message}`);
-        // Não relança o erro aqui para não parar o fluxo principal,
-        // mas é importante logá-lo.
-    } finally {
-        if (connection) {
-            connection.release();
-        }
-    }
-}
-
 /**
  * Fetches, processes, and stores data from the Growatt API.
  * @param {mysql.Pool} dbPool - The MySQL connection pool.
@@ -308,7 +260,7 @@ async function processGrowattData(dbPool) {
         logger.error(`Erro durante a busca de dados Growatt: ${growattError.message}`);
         growattApiSuccess = false;
     } finally {
-        await updateGrowattServerStatus(dbPool, growattApiSuccess);
+        await updateApiStatus(dbPool, 'Growatt', growattApiSuccess);
         logger.info('Busca de dados Growatt concluída.');
     }
 }
@@ -319,6 +271,7 @@ async function processGrowattData(dbPool) {
  */
 async function processSolarmanData(dbPool) {
     logger.info('Iniciando busca de dados Solarman...');
+    let solarmanApiSuccess = false;
     try {
         const plantConfigs = await getPlantConfig(dbPool);
         const solarmanInverters = plantConfigs.filter(config => config.api_type === 'Solarman');
@@ -376,9 +329,103 @@ async function processSolarmanData(dbPool) {
             logger.warn('Nenhum dado bruto da Solarman foi coletado com sucesso.');
         }
     } catch (solarmanError) {
+        solarmanApiSuccess = false;
         logger.error(`Erro durante a busca de dados Solarman: ${solarmanError.message}`);
     } finally {
+        await updateApiStatus(dbPool, 'Solarman', solarmanApiSuccess);
         logger.info('Busca de dados Solarman concluída.');
+    }
+}
+
+/**
+ * Atualiza o status de uma API na tabela api_status_monitor e envia notificações se necessário.
+ * @param {mysql.Pool} dbPool - O pool de conexão do MySQL.
+ * @param {string} apiName - O nome da API (ex: 'Growatt', 'Solarman').
+ * @param {boolean} isSuccess - True se a chamada da API foi bem-sucedida, false caso contrário.
+ */
+async function updateApiStatus(dbPool, apiName, isSuccess) {
+    let connection;
+    try {
+        connection = await dbPool.getConnection();
+        await connection.beginTransaction();
+
+        const [existingStatusRows] = await connection.execute(
+            'SELECT * FROM api_status_monitor WHERE api_name = ? FOR UPDATE',
+            [apiName]
+        );
+        const existingStatus = existingStatusRows[0];
+
+        if (isSuccess) {
+            if (existingStatus && existingStatus.status === 'FAILING') {
+                // A API estava falhando e agora se recuperou.
+                logger.info(`API ${apiName} recuperada com sucesso.`);
+                await telegramNotifier.sendTelegramMessage(
+                    `✅ <b>RECUPERAÇÃO DE API: ${apiName}</b> ✅\n\nA API voltou a funcionar normalmente.`
+                );
+
+                // LÓGICA DE PERÍODO DE CARÊNCIA: Apenas para Growatt
+                if (apiName === 'Growatt') {
+                    logger.info(`Iniciando período de carência de ${GROWATT_RECOVERY_GRACE_PERIOD_MINUTES} minutos para alarmes da Growatt.`);
+                    await connection.execute(
+                        'UPDATE api_status_monitor SET status = \'OK\', recovery_grace_period_until = NOW() + INTERVAL ? MINUTE WHERE api_name = ?',
+                        [GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, apiName]
+                    );
+                }
+                await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
+            }
+            // Se não havia registro, significa que já estava OK, então não fazemos nada.
+        } else { // A chamada à API falhou
+            if (existingStatus) {
+                // A API já estava em estado de falha. Verificamos há quanto tempo.
+                const firstFailureTime = new Date(existingStatus.first_failure_at);
+                const now = new Date();
+                const hoursSinceFailure = (now - firstFailureTime) / (1000 * 60 * 60);
+
+                if (hoursSinceFailure >= 6 && !existingStatus.notification_sent) {
+                    // A falha persiste por 6 horas ou mais e a notificação ainda não foi enviada.
+                    logger.error(`ALERTA CRÍTICO: A API ${apiName} está falhando há mais de 6 horas.`);
+                    await telegramNotifier.sendTelegramMessage(
+                        `🔥 <b>FALHA PERSISTENTE DE API: ${apiName}</b> 🔥\n\nA API <b>${apiName}</b> está offline ou apresentando erros graves (login, timeout, etc.) por <b>mais de 6 horas</b>.\n\nNenhuma nova notificação será enviada para esta falha até que o serviço seja restaurado.`
+                    );
+                    // Marca que a notificação foi enviada para não spamar o admin.
+                    await connection.execute(
+                        'UPDATE api_status_monitor SET notification_sent = 1, last_checked_at = NOW(), recovery_grace_period_until = NULL WHERE api_name = ?',
+                        [apiName]
+                    );
+                } else {
+                    // A falha persiste, mas ainda não atingiu o limite de 6 horas ou a notificação já foi enviada.
+                    // Apenas atualizamos o timestamp da última verificação.
+                    await connection.execute(
+                        'UPDATE api_status_monitor SET last_checked_at = NOW() WHERE api_name = ?',
+                        [apiName]
+                    );
+                }
+            } else {
+                // Esta é a primeira vez que a falha é detectada.
+                logger.warn(`Primeira detecção de falha para a API ${apiName}. Iniciando monitoramento.`);
+                await connection.execute(
+                    `INSERT INTO api_status_monitor (api_name, status, first_failure_at, last_checked_at, notification_sent, recovery_grace_period_until)
+                     VALUES (?, 'FAILING', NOW(), NOW(), 0, NULL)`,
+                    [apiName]
+                );
+            }
+        }
+
+        await connection.commit();
+    } catch (error) {
+        if (connection) {
+            await connection.rollback();
+        }
+        // Este erro é crítico para a lógica de monitoramento, então notificamos.
+        const errorMessage = `Erro ao atualizar o status da API ${apiName} no banco de dados: ${error.message}`;
+        logger.error(errorMessage);
+        await telegramNotifier.sendTelegramMessage(
+            `❌ <b>ERRO NO SISTEMA DE MONITORAMENTO DE API</b> ❌\n\nOcorreu um erro interno ao tentar gerenciar o estado da API <b>${apiName}</b>.\nDetalhes: ${error.message}`
+        );
+    } finally {
+        if (connection) {
+            connection.release();
+        }
     }
 }
 

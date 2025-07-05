@@ -433,13 +433,13 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
  * @param {string} adminChatId - O ID do chat do administrador.
  * @param {number} growattRecoveryGracePeriodMinutes - Período de carência para recuperação do Growatt.
  */
-async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, growattRecoveryGracePeriodMinutes) {
-    const [growattServerStatusRows] = await connection.execute(`
+async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId) {
+    const [apiStatusRows] = await connection.execute(`
         SELECT recovery_grace_period_until
-        FROM growatt_server_status
-        WHERE id = 1
+        FROM api_status_monitor
+        WHERE api_name = 'Growatt' AND recovery_grace_period_until IS NOT NULL
     `);
-    const growattGracePeriodUntil = growattServerStatusRows.length > 0 ? growattServerStatusRows[0].recovery_grace_period_until : null;
+    const growattGracePeriodUntil = apiStatusRows.length > 0 ? new Date(apiStatusRows[0].recovery_grace_period_until) : null;
 
     const [inverterOfflineAlarms] = await connection.execute(`
         SELECT
@@ -681,7 +681,7 @@ async function checkAndManageAlarms(pool, adminChatId) {
         await processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId);
 
         // 4. Detectar e processar alarmes de inversor offline
-        await detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, GROWATT_RECOVERY_GRACE_PERIOD_MINUTES);
+        await detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId);
 
         // 5. Limpar alarmes que não são mais detectados
         await clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, consecutiveCountsMap, connection, adminChatId);
