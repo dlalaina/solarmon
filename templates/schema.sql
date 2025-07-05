@@ -63,6 +63,7 @@ CREATE TABLE `api_status_monitor` (
   `first_failure_at` datetime NOT NULL COMMENT 'Timestamp da primeira falha consecutiva',
   `last_checked_at` datetime NOT NULL COMMENT 'Timestamp da última verificação',
   `notification_sent` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'Flag para indicar se a notificação de falha persistente já foi enviada',
+  `recovery_grace_period_until` datetime DEFAULT NULL COMMENT 'Timestamp até o qual os alarmes para esta API devem ser ignorados após uma recuperação.',
   PRIMARY KEY (`api_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
