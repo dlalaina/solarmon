@@ -51,6 +51,23 @@ CREATE TABLE `alarms` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `api_status_monitor`
+--
+
+DROP TABLE IF EXISTS `api_status_monitor`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `api_status_monitor` (
+  `api_name` varchar(50) NOT NULL COMMENT 'Nome da API (ex: Growatt, Solarman)',
+  `status` enum('OK','FAILING') NOT NULL COMMENT 'Status atual da API',
+  `first_failure_at` datetime NOT NULL COMMENT 'Timestamp da primeira falha consecutiva',
+  `last_checked_at` datetime NOT NULL COMMENT 'Timestamp da última verificação',
+  `notification_sent` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'Flag para indicar se a notificação de falha persistente já foi enviada',
+  PRIMARY KEY (`api_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `consecutive_alarm_counts`
 --
 
