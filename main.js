@@ -256,6 +256,7 @@ async function processGrowattData(dbPool) {
             logger.warn(`Falha ao deslogar da Growatt: ${logoutError.message}`);
         }
         growattApiSuccess = true;
+
     } catch (growattError) {
         logger.error(`Erro durante a busca de dados Growatt: ${growattError.message}`);
         growattApiSuccess = false;
@@ -328,6 +329,8 @@ async function processSolarmanData(dbPool) {
         } else {
             logger.warn('Nenhum dado bruto da Solarman foi coletado com sucesso.');
         }
+
+        solarmanApiSuccess = true; // <-- CORREÇÃO: Define o sucesso aqui
     } catch (solarmanError) {
         solarmanApiSuccess = false;
         logger.error(`Erro durante a busca de dados Solarman: ${solarmanError.message}`);
@@ -356,22 +359,33 @@ async function updateApiStatus(dbPool, apiName, isSuccess) {
         const existingStatus = existingStatusRows[0];
 
         if (isSuccess) {
-            if (existingStatus && existingStatus.status === 'FAILING') {
-                // A API estava falhando e agora se recuperou.
-                logger.info(`API ${apiName} recuperada com sucesso.`);
-                await telegramNotifier.sendTelegramMessage(
-                    `✅ <b>RECUPERAÇÃO DE API: ${apiName}</b> ✅\n\nA API voltou a funcionar normalmente.`
-                );
-
-                // LÓGICA DE PERÍODO DE CARÊNCIA: Apenas para Growatt
-                if (apiName === 'Growatt') {
-                    logger.info(`Iniciando período de carência de ${GROWATT_RECOVERY_GRACE_PERIOD_MINUTES} minutos para alarmes da Growatt.`);
-                    await connection.execute(
-                        'UPDATE api_status_monitor SET status = \'OK\', recovery_grace_period_until = NOW() + INTERVAL ? MINUTE WHERE api_name = ?',
-                        [GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, apiName]
+            if (existingStatus) {
+                if (existingStatus.status === 'FAILING') {
+                    // A API estava falhando e agora se recuperou.
+                    logger.info(`API ${apiName} recuperada com sucesso.`);
+                    await telegramNotifier.sendTelegramMessage(
+                        `✅ <b>RECUPERAÇÃO DE API: ${apiName}</b> ✅\n\nA API voltou a funcionar normalmente.`
                     );
+
+                    if (apiName === 'Growatt') {
+                        // Para Growatt, atualiza o status para 'OK' e define o período de carência. NÃO DELETA O REGISTRO.
+                        logger.info(`Iniciando período de carência de ${GROWATT_RECOVERY_GRACE_PERIOD_MINUTES} minutos para alarmes da Growatt.`);
+                        await connection.execute(
+                            'UPDATE api_status_monitor SET status = \'OK\', notification_sent = 0, recovery_grace_period_until = NOW() + INTERVAL ? MINUTE, first_failure_at = NULL WHERE api_name = ?',
+                            [GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, apiName]
+                        );
+                    } else {
+                        // Para outras APIs (Solarman), simplesmente remove o registro de falha.
+                        await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
+                    }
+                } else if (existingStatus.status === 'OK' && apiName === 'Growatt') {
+                    // Se a API já está OK (significa que é a Growatt em período de carência) e o período de carência já passou, limpa o registro.
+                    const gracePeriodUntil = new Date(existingStatus.recovery_grace_period_until);
+                    if (new Date() > gracePeriodUntil) {
+                        logger.info(`Período de carência para ${apiName} expirou. Removendo registro de status 'OK'.`);
+                        await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
+                    }
                 }
-                await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
             }
             // Se não havia registro, significa que já estava OK, então não fazemos nada.
         } else { // A chamada à API falhou
