@@ -51,8 +51,9 @@ async function getConsecutiveCountsFromDb(connection) {
  * @param {Set<string>} stillActiveDetectedKeys - Set para rastrear alarmes ainda ativos.
  * @param {object} connection - A conexão MySQL.
  * @param {string} adminChatId - O ID do chat do administrador.
+ * @param {Date|null} growattGracePeriodUntil - Timestamp de quando o período de carência da Growatt termina.
  */
-async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId) {
+async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId, growattGracePeriodUntil) {
     for (const detection of dayIpvAlarms) {
         const plantName = detection.plant_name;
         const inverterId = detection.inverter_id;
@@ -60,6 +61,13 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
         const stringGroupingType = detection.string_grouping_type;
         const apiType = detection.api_type;
         const ownerChatId = detection.owner_chat_id;
+
+        // **CORREÇÃO 1: Pular análise de alarmes de String/MPPT para Growatt durante o período de carência**
+        if (apiType === 'Growatt' && growattGracePeriodUntil && new Date() < growattGracePeriodUntil) {
+            logger.info(`Análise de alarmes de String/MPPT para ${plantName} - ${inverterId} (Growatt) ignorada durante o período de carência.`);
+            // Se houver alarmes de string/mppt ativos para este inversor, eles precisam ser mantidos
+            continue; // Pula para o próximo inversor
+        }
 
         let activeStrings = [];
         if (Array.isArray(detection.active_strings_config)) {
@@ -431,16 +439,9 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
  * @param {Map<string, object>} activeAlarmsMap - Mapa de alarmes ativos.
  * @param {Set<string>} stillActiveDetectedKeys - Set para rastrear alarmes ainda ativos.
  * @param {string} adminChatId - O ID do chat do administrador.
- * @param {number} growattRecoveryGracePeriodMinutes - Período de carência para recuperação do Growatt.
+ * @param {Date|null} growattGracePeriodUntil - Timestamp de quando o período de carência da Growatt termina.
  */
-async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId) {
-    const [apiStatusRows] = await connection.execute(`
-        SELECT recovery_grace_period_until
-        FROM api_status_monitor
-        WHERE api_name = 'Growatt' AND recovery_grace_period_until IS NOT NULL
-    `);
-    const growattGracePeriodUntil = apiStatusRows.length > 0 ? new Date(apiStatusRows[0].recovery_grace_period_until) : null;
-
+async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, growattGracePeriodUntil) {
     const [inverterOfflineAlarms] = await connection.execute(`
         SELECT
             pc.plant_name,
@@ -468,6 +469,10 @@ async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillAct
     for (const detection of inverterOfflineAlarms) {
         if (detection.api_type === 'Growatt' && growattGracePeriodUntil && now < growattGracePeriodUntil) {
             logger.info(`INVERSOR OFFLINE (Growatt) ignorado durante período de carência para Planta: ${detection.plant_name}, Inversor: ${detection.inverter_id}. Carência termina em: ${growattGracePeriodUntil.toLocaleString()}.`);
+            
+            // **CORREÇÃO 2: Manter o alarme existente como ativo para não ser limpo**
+            const alarmKey = `${detection.plant_name}_${detection.inverter_id}_INVERTER-OFFLINE_Inversor Offline`;
+            stillActiveDetectedKeys.add(alarmKey);
         } else {
             filteredInverterOfflineAlarms.push(detection);
         }
@@ -495,6 +500,16 @@ async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillAct
  * @param {string} adminChatId - O ID do chat do administrador.
  */
 async function clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, consecutiveCountsMap, connection, adminChatId) {
+    // Otimização: Buscar todos os owner_chat_id de uma vez para evitar queries em loop.
+    const [plantInfoRows] = await connection.execute(
+        `SELECT plant_name, owner_chat_id FROM plant_info`
+    );
+    const plantOwnerMap = new Map();
+    plantInfoRows.forEach(row => {
+        plantOwnerMap.set(row.plant_name, row.owner_chat_id);
+    });
+
+
     for (const [alarmKey, alarm] of activeAlarmsMap.entries()) {
         // Se o alarme ainda está na lista de "ainda ativos" detectados, ou se é um alarme de email event, PULE a limpeza automática.
         if (stillActiveDetectedKeys.has(alarmKey) || alarm.alarm_type.endsWith('-EMAIL-EVENT')) {
@@ -521,11 +536,8 @@ async function clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, con
             // Enviar para o ADMIN
             await telegramNotifier.sendTelegramMessage(`✅ <b>ALARME RESOLVIDO: ${alarm.alarm_type.replace(/-/g, ' ')}</b> ✅\nPlanta: <b>${alarm.plant_name}</b>\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`);
             // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e resolvedOwnerChatId existir)
-            const [plantInfo] = await connection.execute( // Re-buscando plantInfo para garantir ownerChatId
-                `SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`,
-                [alarm.plant_name]
-            );
-            const resolvedOwnerChatId = plantInfo.length > 0 ? plantInfo[0].owner_chat_id : null;
+            // Otimizado: Usa o mapa pré-carregado em vez de uma nova query.
+            const resolvedOwnerChatId = plantOwnerMap.get(alarm.plant_name);
             if (resolvedOwnerChatId && resolvedOwnerChatId !== adminChatId) {
                 const ownerResolvedMessage = `✅ <b>ALARME RESOLVIDO</b> ✅\nSua usina <b>${alarm.plant_name}</b> teve um alarme resolvido:\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`;
                 await telegramNotifier.sendTelegramMessage(ownerResolvedMessage, resolvedOwnerChatId);
@@ -628,6 +640,13 @@ async function checkAndManageAlarms(pool, adminChatId) {
         const consecutiveCountsMap = await getConsecutiveCountsFromDb(connection);
         const stillActiveDetectedKeys = new Set(); // Resetar para cada execução
 
+        // Obter o status do período de carência da Growatt UMA VEZ para toda a execução
+        const [apiStatusRows] = await connection.execute(`
+            SELECT recovery_grace_period_until
+            FROM api_status_monitor
+            WHERE api_name = 'Growatt' AND status = 'OK' AND recovery_grace_period_until IS NOT NULL
+        `);
+        const growattGracePeriodUntil = apiStatusRows.length > 0 ? new Date(apiStatusRows[0].recovery_grace_period_until) : null;
         // 2. Obter TODOS os inversores configurados e seus dados MAIS RECENTES de solar_data.
         // A consulta usa um LEFT JOIN direto de plant_config para solar_data.
         // Isso é eficiente porque a tabela solar_data, devido ao ON DUPLICATE KEY UPDATE,
@@ -678,10 +697,10 @@ async function checkAndManageAlarms(pool, adminChatId) {
         });
 
         // 3. Processar alarmes de string e MPPT
-        await processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId);
+        await processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId, growattGracePeriodUntil);
 
         // 4. Detectar e processar alarmes de inversor offline
-        await detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId);
+        await detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, growattGracePeriodUntil);
 
         // 5. Limpar alarmes que não são mais detectados
         await clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, consecutiveCountsMap, connection, adminChatId);

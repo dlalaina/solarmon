@@ -341,6 +341,99 @@ async function processSolarmanData(dbPool) {
 }
 
 /**
+ * Lida com o cenário em que a chamada da API foi bem-sucedida.
+ * @param {object} connection - Conexão com o banco de dados.
+ * @param {string} apiName - Nome da API.
+ * @param {object|null} existingStatus - O status atual da API no banco, se houver.
+ */
+async function handleApiSuccess(connection, apiName, existingStatus) {
+    if (!existingStatus) {
+        // Se não havia registro, significa que já estava OK, então não fazemos nada.
+        return;
+    }
+
+    if (existingStatus.status === 'FAILING') {
+        // A API estava falhando e agora se recuperou.
+        logger.info(`API ${apiName} recuperada com sucesso.`);
+        await telegramNotifier.sendTelegramMessage(
+            `✅ <b>RECUPERAÇÃO DE API: ${apiName}</b> ✅\n\nA API voltou a funcionar normalmente.`
+        );
+
+        if (apiName === 'Growatt') {
+            // Para Growatt, atualiza o status para 'OK' e define o período de carência.
+            logger.info(`Iniciando período de carência de ${GROWATT_RECOVERY_GRACE_PERIOD_MINUTES} minutos para alarmes da Growatt.`);
+            await connection.execute(
+                'UPDATE api_status_monitor SET status = \'OK\', notification_sent = 0, recovery_grace_period_until = NOW() + INTERVAL ? MINUTE WHERE api_name = ?',
+                [GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, apiName]
+            );
+        } else {
+            // Para outras APIs (Solarman), simplesmente remove o registro de falha.
+            await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
+        }
+    } else if (existingStatus.status === 'OK' && apiName === 'Growatt') {
+        // Se a API já está OK (Growatt em período de carência) e o período de carência já passou, limpa o registro.
+        const gracePeriodUntil = new Date(existingStatus.recovery_grace_period_until);
+        if (new Date() > gracePeriodUntil) {
+            logger.info(`Período de carência para ${apiName} expirou. Removendo registro de status 'OK'.`);
+            await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
+        }
+    }
+}
+
+/**
+ * Lida com o cenário em que a chamada da API falhou.
+ * @param {object} connection - Conexão com o banco de dados.
+ * @param {string} apiName - Nome da API.
+ * @param {object|null} existingStatus - O status atual da API no banco, se houver.
+ */
+async function handleApiFailure(connection, apiName, existingStatus) {
+    if (existingStatus) {
+        if (existingStatus.status === 'FAILING') {
+            // A API já estava em estado de falha. Verificamos há quanto tempo.
+            const firstFailureTime = new Date(existingStatus.first_failure_at);
+            const now = new Date();
+            const hoursSinceFailure = (now - firstFailureTime) / (1000 * 60 * 60);
+
+            if (hoursSinceFailure >= 6 && !existingStatus.notification_sent) {
+                // A falha persiste por 6 horas ou mais e a notificação ainda não foi enviada.
+                logger.error(`ALERTA CRÍTICO: A API ${apiName} está falhando há mais de 6 horas.`);
+                await telegramNotifier.sendTelegramMessage(
+                    `🔥 <b>FALHA PERSISTENTE DE API: ${apiName}</b> 🔥\n\nA API <b>${apiName}</b> está offline ou apresentando erros graves (login, timeout, etc.) por <b>mais de 6 horas</b>.\n\nNenhuma nova notificação será enviada para esta falha até que o serviço seja restaurado.`
+                );
+                // Marca que a notificação foi enviada para não spamar o admin.
+                await connection.execute(
+                    'UPDATE api_status_monitor SET notification_sent = 1, last_checked_at = NOW(), recovery_grace_period_until = NULL WHERE api_name = ?',
+                    [apiName]
+                );
+            } else {
+                // A falha persiste, mas ainda não atingiu o limite de 6 horas ou a notificação já foi enviada.
+                // Apenas atualizamos o timestamp da última verificação.
+                await connection.execute(
+                    'UPDATE api_status_monitor SET last_checked_at = NOW() WHERE api_name = ?',
+                    [apiName]
+                );
+            }
+        } else if (existingStatus.status === 'OK') {
+            // A API estava em período de carência ('OK') mas falhou novamente.
+            // Devemos reverter para 'FAILING' e registrar um novo 'first_failure_at'.
+            logger.warn(`API ${apiName} falhou novamente durante o período de carência. Resetando para o estado de falha.`);
+            await connection.execute(
+                'UPDATE api_status_monitor SET status = \'FAILING\', first_failure_at = NOW(), last_checked_at = NOW(), notification_sent = 0, recovery_grace_period_until = NULL WHERE api_name = ?',
+                [apiName]
+            );
+        }
+    } else {
+        // Esta é a primeira vez que a falha é detectada.
+        logger.warn(`Primeira detecção de falha para a API ${apiName}. Iniciando monitoramento.`);
+        await connection.execute(
+            `INSERT INTO api_status_monitor (api_name, status, first_failure_at, last_checked_at, notification_sent, recovery_grace_period_until)
+             VALUES (?, 'FAILING', NOW(), NOW(), 0, NULL)`,
+            [apiName]
+        );
+    }
+}
+
+/**
  * Atualiza o status de uma API na tabela api_status_monitor e envia notificações se necessário.
  * @param {mysql.Pool} dbPool - O pool de conexão do MySQL.
  * @param {string} apiName - O nome da API (ex: 'Growatt', 'Solarman').
@@ -359,70 +452,9 @@ async function updateApiStatus(dbPool, apiName, isSuccess) {
         const existingStatus = existingStatusRows[0];
 
         if (isSuccess) {
-            if (existingStatus) {
-                if (existingStatus.status === 'FAILING') {
-                    // A API estava falhando e agora se recuperou.
-                    logger.info(`API ${apiName} recuperada com sucesso.`);
-                    await telegramNotifier.sendTelegramMessage(
-                        `✅ <b>RECUPERAÇÃO DE API: ${apiName}</b> ✅\n\nA API voltou a funcionar normalmente.`
-                    );
-
-                    if (apiName === 'Growatt') {
-                        // Para Growatt, atualiza o status para 'OK' e define o período de carência. NÃO DELETA O REGISTRO.
-                        logger.info(`Iniciando período de carência de ${GROWATT_RECOVERY_GRACE_PERIOD_MINUTES} minutos para alarmes da Growatt.`);
-                        await connection.execute(
-                            'UPDATE api_status_monitor SET status = \'OK\', notification_sent = 0, recovery_grace_period_until = NOW() + INTERVAL ? MINUTE, first_failure_at = NULL WHERE api_name = ?',
-                            [GROWATT_RECOVERY_GRACE_PERIOD_MINUTES, apiName]
-                        );
-                    } else {
-                        // Para outras APIs (Solarman), simplesmente remove o registro de falha.
-                        await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
-                    }
-                } else if (existingStatus.status === 'OK' && apiName === 'Growatt') {
-                    // Se a API já está OK (significa que é a Growatt em período de carência) e o período de carência já passou, limpa o registro.
-                    const gracePeriodUntil = new Date(existingStatus.recovery_grace_period_until);
-                    if (new Date() > gracePeriodUntil) {
-                        logger.info(`Período de carência para ${apiName} expirou. Removendo registro de status 'OK'.`);
-                        await connection.execute('DELETE FROM api_status_monitor WHERE api_name = ?', [apiName]);
-                    }
-                }
-            }
-            // Se não havia registro, significa que já estava OK, então não fazemos nada.
+            await handleApiSuccess(connection, apiName, existingStatus);
         } else { // A chamada à API falhou
-            if (existingStatus) {
-                // A API já estava em estado de falha. Verificamos há quanto tempo.
-                const firstFailureTime = new Date(existingStatus.first_failure_at);
-                const now = new Date();
-                const hoursSinceFailure = (now - firstFailureTime) / (1000 * 60 * 60);
-
-                if (hoursSinceFailure >= 6 && !existingStatus.notification_sent) {
-                    // A falha persiste por 6 horas ou mais e a notificação ainda não foi enviada.
-                    logger.error(`ALERTA CRÍTICO: A API ${apiName} está falhando há mais de 6 horas.`);
-                    await telegramNotifier.sendTelegramMessage(
-                        `🔥 <b>FALHA PERSISTENTE DE API: ${apiName}</b> 🔥\n\nA API <b>${apiName}</b> está offline ou apresentando erros graves (login, timeout, etc.) por <b>mais de 6 horas</b>.\n\nNenhuma nova notificação será enviada para esta falha até que o serviço seja restaurado.`
-                    );
-                    // Marca que a notificação foi enviada para não spamar o admin.
-                    await connection.execute(
-                        'UPDATE api_status_monitor SET notification_sent = 1, last_checked_at = NOW(), recovery_grace_period_until = NULL WHERE api_name = ?',
-                        [apiName]
-                    );
-                } else {
-                    // A falha persiste, mas ainda não atingiu o limite de 6 horas ou a notificação já foi enviada.
-                    // Apenas atualizamos o timestamp da última verificação.
-                    await connection.execute(
-                        'UPDATE api_status_monitor SET last_checked_at = NOW() WHERE api_name = ?',
-                        [apiName]
-                    );
-                }
-            } else {
-                // Esta é a primeira vez que a falha é detectada.
-                logger.warn(`Primeira detecção de falha para a API ${apiName}. Iniciando monitoramento.`);
-                await connection.execute(
-                    `INSERT INTO api_status_monitor (api_name, status, first_failure_at, last_checked_at, notification_sent, recovery_grace_period_until)
-                     VALUES (?, 'FAILING', NOW(), NOW(), 0, NULL)`,
-                    [apiName]
-                );
-            }
+            await handleApiFailure(connection, apiName, existingStatus);
         }
 
         await connection.commit();
