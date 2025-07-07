@@ -47,7 +47,7 @@ CREATE TABLE `alarms` (
   `cleared_by` varchar(50) DEFAULT NULL,
   `observation` text,
   PRIMARY KEY (`alarm_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
