@@ -4,6 +4,15 @@ const logger = require('./logger')('main');
 // Constante para definir o período de carência (em minutos) após a recuperação do servidor Growatt
 const GROWATT_RECOVERY_GRACE_PERIOD_MINUTES = 18; // 18 minutos = 3 ciclos de 5min após o servidor voltar
 
+// --- CONSTANTES DE LIMIAR DE ALARME ---
+const THRESHOLD_MIN_CURRENT_FOR_STRING_DOWN_ANALYSIS = 8.0; // Corrente mínima do inversor para analisar STRING-DOWN
+const THRESHOLD_MIN_CURRENT_FOR_PARTIAL_FAULT_ANALYSIS = 13.0; // Corrente mínima para analisar falhas parciais (MPPT/HALF)
+const THRESHOLD_STRING_DOWN_CURRENT = 0.5; // Corrente que define uma string como "fora"
+
+const CONSECUTIVE_DETECTIONS_FOR_STRING_DOWN = 2;
+const CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS = 4;
+// --- FIM DAS CONSTANTES ---
+
 /**
  * Busca todos os alarmes ativos atualmente no banco de dados.
  * @param {object} connection - A conexão MySQL.
@@ -134,8 +143,8 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
             }
 
             // --- CONDIÇÃO CHAVE: Só checa STRING-DOWN se o inversor estiver produzindo ativamente ---
-            if (greatestCurrentString > 8.0) { // O inversor está produzindo o suficiente para a análise
-                if (stringCurrentValue <= 0.5) { // A string está com produção próxima de zero
+            if (greatestCurrentString > THRESHOLD_MIN_CURRENT_FOR_STRING_DOWN_ANALYSIS) { // O inversor está produzindo o suficiente para a análise
+                if (stringCurrentValue <= THRESHOLD_STRING_DOWN_CURRENT) { // A string está com produção próxima de zero
                     consecutiveCount_SD++;
                     consecutiveCountsMap.set(consecutiveKey_SD, consecutiveCount_SD);
 
@@ -144,8 +153,8 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                     stillActiveDetectedKeys.add(alarmKey);
 
                     if (activeAlarmsMap.has(alarmKey)) {
-                        logger.info(`STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_SD}/2).`);
-                    } else if (consecutiveCount_SD >= 2) {
+                        logger.info(`STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_SD}/${CONSECUTIVE_DETECTIONS_FOR_STRING_DOWN}).`);
+                    } else if (consecutiveCount_SD >= CONSECUTIVE_DETECTIONS_FOR_STRING_DOWN) {
                         const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção próxima de zero (${stringCurrentValue.toFixed(2)}A) enquanto outras strings estão ativas (pico: ${greatestCurrentString.toFixed(2)}A).`;
                         await connection.execute(
                             `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
@@ -162,13 +171,13 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                             logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                         }
                     } else {
-                        logger.info(`STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_SD}/2) - Alarme não disparado ainda.`);
+                        logger.info(`STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_SD}/${CONSECUTIVE_DETECTIONS_FOR_STRING_DOWN}) - Alarme não disparado ainda.`);
                     }
                 } else {
                     // A string está produzindo acima do limite de "quase zero" (0.5A) E o inversor está ativo.
                     // Isso significa que a condição de STRING-DOWN não é mais atendida. Reseta a contagem.
                     if (consecutiveCount_SD > 0) {
-                        logger.info(`Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (String produziu acima de 0.5A).`);
+                        logger.info(`Resetando contagem consecutiva para STRING-DOWN para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (String produziu acima de ${THRESHOLD_STRING_DOWN_CURRENT}A).`);
                         consecutiveCountsMap.set(consecutiveKey_SD, 0); // Ocorre apenas se string voltar a produzir
 
                         const alarmKeyToClear = `${plantName}_${inverterId}_${alarmType}_${problemDetailsForAlarm}`;
@@ -220,7 +229,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
             let consecutiveCount_TSD = consecutiveCountsMap.get(consecutiveKeyTwo) || 0;
             let consecutiveCount_HSW = consecutiveCountsMap.get(consecutiveKey_HSW) || 0;
 
-            if (greatestCurrentString < 13.0) { // Inversor não está produzindo o suficiente para análise de falha parcial MPPT
+            if (greatestCurrentString < THRESHOLD_MIN_CURRENT_FOR_PARTIAL_FAULT_ANALYSIS) { // Inversor não está produzindo o suficiente para análise de falha parcial MPPT
                 const alarmKeyOne = `${plantName}_${inverterId}_MPPT-ONE-STRING-DOWN_${problemDetailsOne}`;
                 if (activeAlarmsMap.has(alarmKeyOne)) {
                     stillActiveDetectedKeys.add(alarmKeyOne);
@@ -290,8 +299,8 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                     stillActiveDetectedKeys.add(alarmKey);
 
                     if (activeAlarmsMap.has(alarmKey)) {
-                        logger.info(`MPPT-TWO-STRINGS-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_TSD}/4).`);
-                    } else if (consecutiveCount_TSD >= 4) { // Requer 4 detecções consecutivas
+                        logger.info(`MPPT-TWO-STRINGS-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_TSD}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}).`);
+                    } else if (consecutiveCount_TSD >= CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS) { // Requer 4 detecções consecutivas
                         const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerTwoThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperTwoThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica DUAS STRINGS FORA.`;
                         await connection.execute(
                             `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
@@ -308,7 +317,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                             logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                         }
                     } else {
-                        logger.info(`MPPT-TWO-STRINGS-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_TSD}/4) - Alarme não disparado ainda.`);
+                        logger.info(`MPPT-TWO-STRINGS-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_TSD}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}) - Alarme não disparado ainda.`);
                     }
                     // Garante que o alarme de 'Uma string fora' seja resetado se 'Duas strings fora' for detectado
                     if (consecutiveCountsMap.has(consecutiveKeyOne) && consecutiveCountsMap.get(consecutiveKeyOne) > 0) {
@@ -340,8 +349,8 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                         stillActiveDetectedKeys.add(alarmKey);
 
                         if (activeAlarmsMap.has(alarmKey)) {
-                            logger.info(`MPPT-ONE-STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_OSD}/4).`);
-                        } else if (consecutiveCount_OSD >= 4) { // Requer 4 detecções consecutivas
+                            logger.info(`MPPT-ONE-STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_OSD}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}).`);
+                        } else if (consecutiveCount_OSD >= CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS) { // Requer 4 detecções consecutivas
                             const message = `MPPT ${stringNum} (Strings ${mappedStrings}) do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre ${ (lowerOneThreshold/greatestCurrentString*100).toFixed(0)}% e ${(upperOneThreshold/greatestCurrentString*100).toFixed(0)}% da corrente do maior MPPT (${greatestCurrentString.toFixed(2)}A). Isso indica UMA STRING FORA.`;
                             await connection.execute(
                                 `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
@@ -357,7 +366,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                                 logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                             }
                         } else {
-                            logger.info(`MPPT-ONE-STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_OSD}/4) - Alarme não disparado ainda.`);
+                            logger.info(`MPPT-ONE-STRING-DOWN detectado para Planta: ${plantName}, Inversor: ${inverterId}, MPPT: ${stringNum} (Contagem consecutiva: ${consecutiveCount_OSD}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}) - Alarme não disparado ainda.`);
                         }
                     } else {
                         // Se "Uma string fora" não foi detectado NESTE CICLO, reseta sua contagem
@@ -407,8 +416,8 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                         stillActiveDetectedKeys.add(alarmKey);
 
                         if (activeAlarmsMap.has(alarmKey)) {
-                            logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_HSW}/4).`);
-                        } else if (consecutiveCount_HSW >= 4) {
+                            logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_HSW}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}).`);
+                        } else if (consecutiveCount_HSW >= CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS) {
                             const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
                             await connection.execute(
                                 `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
@@ -423,7 +432,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                                 logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                             }
                         } else {
-                            logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/4) - Alarme não disparado ainda.`);
+                            logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}) - Alarme não disparado ainda.`);
                         }
                     } else { // Condition HALF-STRING-WORKING NOT met
                         if (consecutiveCount_HSW > 0) {
