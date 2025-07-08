@@ -65,7 +65,16 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
         // **CORREÇÃO 1: Pular análise de alarmes de String/MPPT para Growatt durante o período de carência**
         if (apiType === 'Growatt' && growattGracePeriodUntil && new Date() < growattGracePeriodUntil) {
             logger.info(`Análise de alarmes de String/MPPT para ${plantName} - ${inverterId} (Growatt) ignorada durante o período de carência.`);
-            // Se houver alarmes de string/mppt ativos para este inversor, eles precisam ser mantidos
+            // Se houver alarmes de string/mppt ativos para este inversor, eles precisam ser mantidos para não serem limpos.
+            // Itera sobre os alarmes ativos para encontrar os que correspondem a este inversor.
+            for (const [key, alarm] of activeAlarmsMap.entries()) {
+                if (alarm.plant_name === plantName && alarm.inverter_id === inverterId) {
+                    if (alarm.alarm_type.includes('STRING') || alarm.alarm_type.includes('MPPT')) {
+                        stillActiveDetectedKeys.add(key);
+                        logger.info(`Mantendo alarme ativo '${alarm.alarm_type}' para ${plantName} - ${inverterId} (${alarm.problem_details}) durante o período de carência.`);
+                    }
+                }
+            }
             continue; // Pula para o próximo inversor
         }
 
