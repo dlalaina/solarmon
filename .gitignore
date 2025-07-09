@@ -86,6 +86,9 @@ Desktop.ini
 # cache token Solarman
 solarman_token_cache.json
 
+# cache token Solplanet
+solplanet_auth_cache.json
+
 # Logs específicos do projeto
 /logs/
 *.log

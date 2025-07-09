@@ -363,18 +363,34 @@ async function processSolplanetData(dbPool, plantConfigs) {
     }
 
     try {
-        const auth = await solplanetApi.getAuthCredentials(credentials.solplanet.account, credentials.solplanet.pwd);
-        logger.info(`Login Solplanet bem-sucedido. Token: ...${auth.token.slice(-4)}, Cookie: ${auth.cookie}`);
+        let solplanetToken = await solplanetApi.getAuthCredentials(credentials.solplanet.account, credentials.solplanet.pwd);
 
         const solplanetRawData = {};
         for (const inverter of solplanetInverters) {
+            const deviceSn = inverter.inverter_id;
             try {
-                const deviceSn = inverter.inverter_id;
-                const data = await solplanetApi.getInverterDetail(auth, deviceSn);
+                const data = await solplanetApi.getInverterDetail(solplanetToken, deviceSn);
                 solplanetRawData[deviceSn] = data;
                 logger.info(`Dados Solplanet para ${deviceSn} coletados.`);
             } catch (solplanetFetchError) {
-                logger.error(`Erro ao buscar dados Solplanet para ${inverter.inverter_id}: ${solplanetFetchError.message}`);
+                // Verifica se o erro é de autenticação (token expirado/inválido)
+                if (solplanetFetchError.response && (solplanetFetchError.response.status === 444 || solplanetFetchError.response.status === 401 || solplanetFetchError.response.status === 403)) {
+                    logger.warn(`Falha de autenticação ao buscar dados para ${deviceSn}. Tentando renovar o token...`);
+                    solplanetToken = await solplanetApi.forceTokenRefresh(credentials.solplanet.account, credentials.solplanet.pwd, solplanetFetchError);
+                    
+                    // Tenta novamente com o novo token
+                    try {
+                        logger.info(`Tentando novamente a busca de dados para ${deviceSn} com o novo token...`);
+                        const data = await solplanetApi.getInverterDetail(solplanetToken, deviceSn);
+                        solplanetRawData[deviceSn] = data;
+                        logger.info(`Dados Solplanet para ${deviceSn} coletados com sucesso após renovação do token.`);
+                    } catch (retryError) {
+                        logger.error(`Erro ao buscar dados para ${deviceSn} mesmo após renovar o token: ${retryError.message}`);
+                    }
+                } else {
+                    // Se for outro tipo de erro, apenas registra
+                    logger.error(`Erro ao buscar dados Solplanet para ${deviceSn}: ${solplanetFetchError.message}`);
+                }
             }
         }
 

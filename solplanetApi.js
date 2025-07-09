@@ -1,8 +1,12 @@
 // solplanetApi.js
 const axios = require('axios');
 const logger = require('./logger')('solplanet');
+const telegramNotifier = require('./telegramNotifier');
+const fs = require('fs').promises;
+const path = require('path');
 
 const API_BASE_URL = 'https://internation-pro-cloud.solplanet.net/api';
+const AUTH_CACHE_FILE = path.join(__dirname, 'solplanet_auth_cache.json');
 
 /**
  * Realiza o login na API da Solplanet e retorna o token de autenticação e o cookie acw_tc.
@@ -33,23 +37,10 @@ async function login(account, pwd) {
         const response = await axios.post(loginUrl, payload, { headers });
 
         if (response.data && response.data.code === 200 && response.data.result && response.data.result.token) {
-            const token = response.data.result.token;
-            
-            const setCookieHeader = response.headers['set-cookie'];
-            let acw_tc = null;
-            if (setCookieHeader) {
-                const cookie = setCookieHeader.find(c => c.startsWith('acw_tc='));
-                if (cookie) {
-                    acw_tc = cookie.split(';')[0];
-                }
-            }
-
-            if (!acw_tc) {
-                throw new Error('Cookie "acw_tc" não encontrado na resposta de login.');
-            }
-
+            const token = response.data.result.token;            
             logger.info('Login na Solplanet realizado com sucesso.');
-            return { token, cookie: acw_tc };
+            // Retorna apenas o token, o cookie não é mais necessário.
+            return token;
         } else {
             throw new Error(`Falha no login da Solplanet: ${response.data.msg || 'Resposta inválida'}`);
         }
@@ -61,12 +52,74 @@ async function login(account, pwd) {
 }
 
 /**
+ * Obtém o token de autenticação, usando o cache se disponível.
+ * Se o cache não existir, faz um novo login.
+ * @param {string} account - O nome de usuário (e-mail).
+ * @param {string} pwd - A senha.
+ * @returns {Promise<string>} O token de autenticação.
+ */
+async function getAuthCredentials(account, pwd) {
+    // 1. Tentar ler do cache
+    try {
+        const cacheData = await fs.readFile(AUTH_CACHE_FILE, 'utf8');
+        const cache = JSON.parse(cacheData);
+        if (cache.token) {
+            logger.info(`Usando token Solplanet em cache (criado em: ${new Date(cache.createdAt).toLocaleString()}).`);
+            return cache.token;
+        }
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            logger.warn(`Não foi possível ler o cache de autenticação da Solplanet: ${error.message}`);
+        }
+    }
+    
+    // 2. Se o cache não existir, fazer login e salvar
+    logger.info('Cache da Solplanet não encontrado. Obtendo novo token...');
+    const token = await login(account, pwd);
+    const newCache = {
+        token: token,
+        createdAt: Date.now()
+    };
+    await fs.writeFile(AUTH_CACHE_FILE, JSON.stringify(newCache, null, 2), 'utf8');
+    logger.info(`Novo token Solplanet salvo em cache.`);
+    return token;
+}
+
+/**
+ * Força a renovação do token, notifica sobre a expiração do antigo e salva o novo no cache.
+ * @param {string} account - O nome de usuário (e-mail).
+ * @param {string} pwd - A senha.
+ * @param {Error} originalError - O erro que acionou a renovação.
+ * @returns {Promise<string>} O novo token de autenticação.
+ */
+async function forceTokenRefresh(account, pwd, originalError) {
+    logger.warn(`Forçando a renovação do token Solplanet devido ao erro: ${originalError.message}`);
+    let oldTokenCreatedAt = 'desconhecida';
+    try {
+        const oldCacheData = await fs.readFile(AUTH_CACHE_FILE, 'utf8');
+        const oldCache = JSON.parse(oldCacheData);
+        const durationMs = Date.now() - oldCache.createdAt;
+        const durationHours = (durationMs / (1000 * 60 * 60)).toFixed(2);
+        oldTokenCreatedAt = `O token anterior durou aproximadamente ${durationHours} horas.`;
+    } catch (e) { /* Ignora se não conseguir ler o cache antigo */ }
+
+    const errorDetails = originalError.response ? `Status ${originalError.response.status}` : originalError.message;
+    const notificationMessage = `🔄 <b>RENOVAÇÃO DE TOKEN: Solplanet</b> 🔄\nO token de acesso expirou ou tornou-se inválido.\n\n<b>Detalhes do Erro:</b> ${errorDetails}\n<b>Duração:</b> ${oldTokenCreatedAt}\n\nUm novo token será solicitado.`;
+    await telegramNotifier.sendTelegramMessage(notificationMessage);
+    logger.info(notificationMessage.replace(/<b>|<\/b>/g, '')); // Log sem HTML
+
+    // Deleta o cache antigo e obtém um novo token
+    try { await fs.unlink(AUTH_CACHE_FILE); } catch (e) { /* Ignora se o arquivo não existir */ }
+    return getAuthCredentials(account, pwd);
+}
+
+/**
  * Busca os detalhes de um inversor específico.
  * @param {{token: string, cookie: string}} auth - O objeto de autenticação com token e cookie.
  * @param {string} inverterId - O número de série (SN) do inversor.
  * @returns {Promise<object>} Os dados detalhados do inversor.
  */
-async function getInverterDetail(auth, inverterId) {
+async function getInverterDetail(token, inverterId) {
     const detailUrl = `${API_BASE_URL}/inverter/detail`;
     const params = {
         isno: inverterId,
@@ -81,8 +134,7 @@ async function getInverterDetail(auth, inverterId) {
         'Referer': 'https://internation-pro-cloud.solplanet.net/plant-center/plant-overview-all/plant-detail?',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
         'localE': 'en_US',
-        'token': auth.token,
-        'Cookie': auth.cookie
+        'token': token
     };
 
     try {
@@ -103,6 +155,7 @@ async function getInverterDetail(auth, inverterId) {
 }
 
 module.exports = {
-    login,
+    getAuthCredentials,
+    forceTokenRefresh,
     getInverterDetail,
 };
