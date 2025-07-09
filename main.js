@@ -363,7 +363,7 @@ async function processSolplanetData(dbPool, plantConfigs) {
     }
 
     try {
-        const auth = await solplanetApi.login(credentials.solplanet.account, credentials.solplanet.pwd);
+        const auth = await solplanetApi.getAuthCredentials(credentials.solplanet.account, credentials.solplanet.pwd);
         logger.info(`Login Solplanet bem-sucedido. Token: ...${auth.token.slice(-4)}, Cookie: ${auth.cookie}`);
 
         const solplanetRawData = {};
