@@ -244,7 +244,7 @@ async function insertDataIntoMySQL(pool, data) {
                   return null; // Retorna null para outros status desconhecidos do Solarman
               }
               if (currentPlantConfig.apiType === 'Solplanet') {
-                  if (sourceData.status === 0) return -1; // Off-line
+                  if (sourceData.status === 0) return 0;  // CORREÇÃO: Mapeia para 0 (Aguardando), não -1 (Offline)
                   if (sourceData.status === 1) return 1;  // Online (suposição)
                   // Adicionar outros mapeamentos de status da Solplanet aqui se necessário
                   return null;
