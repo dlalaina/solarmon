@@ -184,6 +184,7 @@ async function getPlantConfig(dbPool) {
  * @param {Array<Object>} plantConfigs - The pre-fetched plant configurations.
  */
 async function processGrowattData(dbPool, plantConfigs) {
+    const startTime = Date.now();
     logger.info('Iniciando busca de dados Growatt...');
     let growattApiSuccess = false;
 
@@ -262,7 +263,8 @@ async function processGrowattData(dbPool, plantConfigs) {
         growattApiSuccess = false;
     } finally {
         await updateApiStatus(dbPool, 'Growatt', growattApiSuccess);
-        logger.info('Busca de dados Growatt concluída.');
+        const duration = ((Date.now() - startTime) / 1000).toFixed(3);
+        logger.info(`Busca de dados Growatt concluída em ${duration}s.`);
     }
 }
 
@@ -272,6 +274,7 @@ async function processGrowattData(dbPool, plantConfigs) {
  * @param {Array<Object>} plantConfigs - The pre-fetched plant configurations.
  */
 async function processSolarmanData(dbPool, plantConfigs) {
+    const startTime = Date.now();
     logger.info('Iniciando busca de dados Solarman...');
     let solarmanApiSuccess = false;
     try {
@@ -336,7 +339,8 @@ async function processSolarmanData(dbPool, plantConfigs) {
         logger.error(`Erro durante a busca de dados Solarman: ${solarmanError.message}`);
     } finally {
         await updateApiStatus(dbPool, 'Solarman', solarmanApiSuccess);
-        logger.info('Busca de dados Solarman concluída.');
+        const duration = ((Date.now() - startTime) / 1000).toFixed(3);
+        logger.info(`Busca de dados Solarman concluída em ${duration}s.`);
     }
 }
 
@@ -346,6 +350,7 @@ async function processSolarmanData(dbPool, plantConfigs) {
  * @param {Array<Object>} plantConfigs - The pre-fetched plant configurations.
  */
 async function processSolplanetData(dbPool, plantConfigs) {
+    const startTime = Date.now();
     logger.info('Iniciando busca de dados Solplanet...');
 
     if (credentials.solplanet.enabled === false) {
@@ -427,7 +432,8 @@ async function processSolplanetData(dbPool, plantConfigs) {
         solplanetApiSuccess = false;
     } finally {
         await updateApiStatus(dbPool, 'Solplanet', solplanetApiSuccess);
-        logger.info('Busca de dados Solplanet concluída.');
+        const duration = ((Date.now() - startTime) / 1000).toFixed(3);
+        logger.info(`Busca de dados Solplanet concluída em ${duration}s.`);
     }
 }
 
@@ -576,6 +582,7 @@ async function retrieveAndProcessData() {
     const allPlantConfigs = await getPlantConfig(pool);
 
     // Executa as buscas de dados em paralelo para otimizar o tempo
+    const apiFetchStartTime = Date.now();
     logger.info('Iniciando buscas de dados das APIs em paralelo...');
     const results = await Promise.allSettled([
         processGrowattData(pool, allPlantConfigs),
@@ -590,20 +597,25 @@ async function retrieveAndProcessData() {
             logger.error(`Processo da API ${apiName} falhou com erro: ${result.reason}`);
         }
     });
-    logger.info('Buscas de dados em paralelo concluídas.');
+    const apiFetchDuration = ((Date.now() - apiFetchStartTime) / 1000).toFixed(3);
+    logger.info(`Buscas de dados em paralelo concluídas em ${apiFetchDuration}s.`);
 
     // --- Processamento de E-mails de Alerta ---
     try {
+        const emailStartTime = Date.now();
         logger.info('Iniciando processamento de e-mails de alerta...');
         await processAllEmails(pool, credentials);
-        logger.info('Processamento de e-mails de alerta concluído.');
+        const emailDuration = ((Date.now() - emailStartTime) / 1000).toFixed(3);
+        logger.info(`Processamento de e-mails de alerta concluído em ${emailDuration}s.`);
     } catch (emailError) {
         logger.error(`Erro durante o processamento de e-mails, mas o script principal continuará: ${emailError.stack}`);
     }
 
     // --- Gerenciamento de Alarmes ---
+    const alarmStartTime = Date.now();
     await checkAndManageAlarms(pool, credentials.telegram.chatId);
-    logger.info('Verificação e gerenciamento de alarmes concluído.');
+    const alarmDuration = ((Date.now() - alarmStartTime) / 1000).toFixed(3);
+    logger.info(`Verificação e gerenciamento de alarmes concluído em ${alarmDuration}s.`);
 
   } catch (error) {
     logger.error(`Erro durante a recuperação/processamento de dados: ${error.stack}`);
