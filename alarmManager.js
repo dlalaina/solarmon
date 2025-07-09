@@ -485,9 +485,9 @@ async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillAct
         WHERE
             (pc.api_type = 'Growatt' AND (sd.last_update_time IS NULL OR sd.last_update_time < NOW() - INTERVAL 30 MINUTE OR sd.status = -1))
             OR
-            -- Para Solarman, o offline é detectado SOMENTE por status = -1,
+            -- Para Solarman e Solplanet, o offline é detectado SOMENTE por status = -1,
             -- pois ele fica offline de noite.
-            (pc.api_type = 'Solarman' AND sd.status = -1);
+            (pc.api_type IN ('Solarman', 'Solplanet') AND sd.status = -1);
     `);
 
     const filteredInverterOfflineAlarms = [];
