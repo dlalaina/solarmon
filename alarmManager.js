@@ -382,70 +382,79 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                     }
                 }
             }
-            // --- Lógica de Detecção para Outros stringGroupingType (Growatt, 2P etc.) ---
-            else {
-                let shouldCheckThisStringForHalfWorking = false;
-                switch (stringGroupingType) {
-                    case 'ALL_2P':
-                        shouldCheckThisStringForHalfWorking = true;
-                        break;
-                    case 'MIXED_4S_4_2P':
-                        if (stringNum >= 5 && stringNum <= 8) shouldCheckThisStringForHalfWorking = true;
-                        break;
-                    case 'MIXED_6_2P_2S':
-                        if (stringNum >= 1 && stringNum <= 6) shouldCheckThisStringForHalfWorking = true;
-                        break;
-                    default:
-                        break;
-                }
+        
+            // --- Lógica de Detecção para HALF-STRING-WORKING (Growatt, 2P etc.) ---
+            let shouldCheckThisStringForHalfWorking = false;
+            switch (stringGroupingType) {
+                case 'ALL_2P':
+                    shouldCheckThisStringForHalfWorking = true;
+                    break;
+                case 'MIXED_4S_4_2P':
+                    if (stringNum >= 5 && stringNum <= 8) shouldCheckThisStringForHalfWorking = true;
+                    break;
+                case 'MIXED_6_2P_2S':
+                    if (stringNum >= 1 && stringNum <= 6) shouldCheckThisStringForHalfWorking = true;
+                    break;
+                default:
+                    break;
+            }
 
-                if (shouldCheckThisStringForHalfWorking) { // greatestCurrentString >= 13.0 já foi verificado acima
-                    const lowerHalfThreshold = 0.30 * greatestCurrentString;
-                    const upperHalfThreshold = 0.70 * greatestCurrentString;
+            if (shouldCheckThisStringForHalfWorking) { // greatestCurrentString >= 13.0 já foi verificado acima
+                const lowerHalfThreshold = 0.30 * greatestCurrentString;
+                const upperHalfThreshold = 0.70 * greatestCurrentString;
 
-                    const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
+                const consecutiveKey_HSW = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
 
-                    if (currentStringValue >= lowerHalfThreshold && currentStringValue <= upperHalfThreshold && currentStringValue < greatestCurrentString) {
-                        consecutiveCount_HSW++;
-                        consecutiveCountsMap.set(consecutiveKey_HSW, consecutiveCount_HSW);
+                if (currentStringValue >= lowerHalfThreshold && currentStringValue <= upperHalfThreshold && currentStringValue < greatestCurrentString) {
+                    consecutiveCount_HSW++;
+                    consecutiveCountsMap.set(consecutiveKey_HSW, consecutiveCount_HSW);
 
-                        const alarmType = 'HALF-STRING-WORKING';
-                        const alarmSeverity = 'Medium';
-                        const alarmKey = `${plantName}_${inverterId}_${alarmType}_${halfWorkingProblemDetails}`;
-                        // Adiciona a chave ao stillActiveDetectedKeys ASSIM QUE A CONDIÇÃO É DETECTADA
-                        stillActiveDetectedKeys.add(alarmKey);
+                    const alarmType = 'HALF-STRING-WORKING';
+                    const alarmSeverity = 'Medium';
+                    const alarmKey = `${plantName}_${inverterId}_${alarmType}_${halfWorkingProblemDetails}`;
+                    // Adiciona a chave ao stillActiveDetectedKeys ASSIM QUE A CONDIÇÃO É DETECTADA
+                    stillActiveDetectedKeys.add(alarmKey);
 
-                        if (activeAlarmsMap.has(alarmKey)) {
-                            logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_HSW}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}).`);
-                        } else if (consecutiveCount_HSW >= CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS) {
-                            const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
-                            await connection.execute(
-                                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                                [plantName, inverterId, alarmType, alarmSeverity, halfWorkingProblemDetails, message]
-                            );
-                            logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
-                            await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                            if (ownerChatId && ownerChatId !== adminChatId) {
-                                const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A`;
-                                await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
-                                logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
-                            }
-                        } else {
-                            logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}) - Alarme não disparado ainda.`);
+                    if (activeAlarmsMap.has(alarmKey)) {
+                        logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Alarme já ativo, contagem consecutiva: ${consecutiveCount_HSW}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}).`);
+                    } else if (consecutiveCount_HSW >= CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS) {
+                        const message = `String ${stringNum} do inversor ${inverterId} da planta ${plantName} está com produção de ${currentStringValue.toFixed(2)}A, o que está entre 30% e 70% da string de maior produção (${greatestCurrentString.toFixed(2)}A). Isso indica uma série funcionando em paralelo.`;
+                        await connection.execute(
+                            `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+                             VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                            [plantName, inverterId, alarmType, alarmSeverity, halfWorkingProblemDetails, message]
+                        );
+                        logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
+                        await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
+                        if (ownerChatId && ownerChatId !== adminChatId) {
+                            const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A`;
+                            await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                            logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
                         }
-                    } else { // Condition HALF-STRING-WORKING NOT met
-                        if (consecutiveCount_HSW > 0) {
-                            logger.info(`Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Condição não atendida).`);
-                            consecutiveCountsMap.set(consecutiveKey_HSW, 0); // Ocorre apenas se string voltar a produzir
+                    } else {
+                        logger.info(`HALF-STRING-WORKING detectado para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Contagem consecutiva: ${consecutiveCount_HSW}/${CONSECUTIVE_DETECTIONS_FOR_PARTIAL_FAULTS}) - Alarme não disparado ainda.`);
+                    }
+                } else { // Condition HALF-STRING-WORKING NOT met
+                    if (consecutiveCount_HSW > 0) {
+                        logger.info(`Resetando contagem consecutiva para HALF-STRING-WORKING para Planta: ${plantName}, Inversor: ${inverterId}, String: ${stringNum} (Condição não atendida).`);
+                        consecutiveCountsMap.set(consecutiveKey_HSW, 0); // Ocorre apenas se string voltar a produzir
 
-                            const alarmKeyToClear = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
-                            if (activeAlarmsMap.has(alarmKeyToClear)) {
-                                logger.info(`Condição de HALF-STRING-WORKING resolvida para ${plantName} - ${inverterId} - ${halfWorkingProblemDetails}. Será limpo no final.`);
-                            }
+                        const alarmKeyToClear = `${plantName}_${inverterId}_HALF-STRING-WORKING_${halfWorkingProblemDetails}`;
+                        if (activeAlarmsMap.has(alarmKeyToClear)) {
+                            logger.info(`Condição de HALF-STRING-WORKING resolvida para ${plantName} - ${inverterId} - ${halfWorkingProblemDetails}. Será limpo no final.`);
                         }
                     }
                 }
+            }
+
+            // --- FIM DA LÓGICA DE ALARMES PARCIAIS ---
+            if (apiType === 'Solarman' || stringGroupingType === 'ALL_3P') {
+                // A lógica para estes tipos já foi tratada acima.
+                // Este bloco vazio é apenas para clareza da estrutura.
+            } else if (stringGroupingType === 'ALL_1S') {
+                // Para inversores com strings individuais que não são 2P ou 3P,
+                // não há lógica de falha parcial baseada em proporção.
+                // O alarme STRING-DOWN já cobre a falha total.
             }
         }
     } // Fim do loop principal for dayIpvAlarms
