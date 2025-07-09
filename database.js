@@ -79,6 +79,47 @@ function mapSolarmanData(d) {
 }
 
 /**
+ * Mapeia os dados brutos da API Solplanet para um formato padronizado.
+ * @param {object} d - O objeto de dados do dispositivo Solplanet.
+ * @returns {{sourceData: object, lastUpdateTimeValue: string|null}}
+ */
+function mapSolplanetData(d) {
+    const result = d.result || {};
+    const sourceData = {
+        e_today: result.etoday?.[0] ? parseFloat(result.etoday[0]) : null,
+        e_total: result.etotal?.[0] ? parseFloat(result.etotal[0]) * 1000 : null, // Convert MWh to kWh
+        vacr: result.vac?.[0] ? parseFloat(result.vac[0]) : null,
+        vacs: result.vac?.[1] ? parseFloat(result.vac[1]) : null,
+        vact: result.vac?.[2] ? parseFloat(result.vac[2]) : null,
+        status: result.status, // Será mapeado para -1, 1, etc., posteriormente
+        device_model: result.devtypename || null,
+        temperature: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
+    };
+
+    // Mapeia dinamicamente os arrays ipv, vpv e str_cur
+    for (let i = 1; i <= 16; i++) {
+        const index = i - 1;
+        // ipv e vpv têm no máximo 8 colunas no banco
+        if (i <= 8) {
+            if (result.ipv && result.ipv[index] != null) {
+                sourceData[`ipv${i}`] = parseFloat(result.ipv[index]);
+            }
+            if (result.vpv && result.vpv[index] != null) {
+                sourceData[`vpv${i}`] = parseFloat(result.vpv[index]);
+            }
+        }
+        // str_cur tem 16 elementos no exemplo
+        if (result.str_cur && result.str_cur[index] != null) {
+            sourceData[`currentString${i}`] = parseFloat(result.str_cur[index]);
+        }
+    }
+
+    const lastUpdateTimeValue = result.ludt?.[0] ? moment(result.ludt[0]).format('YYYY-MM-DD HH:mm:ss') : null;
+
+    return { sourceData, lastUpdateTimeValue };
+}
+
+/**
  * Inserts transformed Growatt/Solarman data into the MySQL database.
  * @param {object} pool - The MySQL connection pool.
  * @param {object} data - The data object with a 'plants' property containing plant and device data.
@@ -159,6 +200,8 @@ async function insertDataIntoMySQL(pool, data) {
 
         if (currentPlantConfig.apiType === 'Solarman') {
             ({ sourceData, lastUpdateTimeValue } = mapSolarmanData(d));
+        } else if (currentPlantConfig.apiType === 'Solplanet') {
+            ({ sourceData, lastUpdateTimeValue } = mapSolplanetData(d));
         } else {
             // Mapeamento para Growatt (padrão)
             ({ sourceData, lastUpdateTimeValue } = mapGrowattData(d));
@@ -167,9 +210,7 @@ async function insertDataIntoMySQL(pool, data) {
         const rowData = {
           plant_name: plantName,
           inverter_id: deviceId,
-          device_model: currentPlantConfig.apiType === 'Solarman'
-                        ? null
-                        : (d.deviceData?.deviceModel || null),
+          device_model: sourceData.device_model || (d.deviceData?.deviceModel || null),
           
           bdc_status: sourceData.bdc_status != null ? parseInt(sourceData.bdc_status) : null,
           pto_status: sourceData.pto_status != null ? parseInt(sourceData.pto_status) : null,
@@ -202,6 +243,12 @@ async function insertDataIntoMySQL(pool, data) {
                   if (lowerCaseStatus === 'offline') return -1; // Off-line, padronizado com Growatt
                   return null; // Retorna null para outros status desconhecidos do Solarman
               }
+              if (currentPlantConfig.apiType === 'Solplanet') {
+                  if (sourceData.status === 0) return -1; // Off-line
+                  if (sourceData.status === 1) return 1;  // Online (suposição)
+                  // Adicionar outros mapeamentos de status da Solplanet aqui se necessário
+                  return null;
+              }
               // Para Growatt (já é numérico) ou se sourceData.status não for string para Solarman
               return sourceData.status != null ? parseInt(sourceData.status) : null;
           })(),
@@ -219,7 +266,7 @@ async function insertDataIntoMySQL(pool, data) {
             const vpvCol = `vpv${stringNum}`;
             const currentStringCol = `currentString${stringNum}`;
 
-            if (currentPlantConfig.apiType === 'Solarman') {
+            if (currentPlantConfig.apiType === 'Solarman') { // --- SOLARMAN ---
                 const dataListMap = {}; 
                 if (d.dataList && Array.isArray(d.dataList)) {
                     d.dataList.forEach(item => {
@@ -228,22 +275,32 @@ async function insertDataIntoMySQL(pool, data) {
                 }
                 rowData[ipvCol] = dataListMap[`DC${stringNum}`] != null ? parseFloat(dataListMap[`DC${stringNum}`]) : null;
                 rowData[vpvCol] = dataListMap[`DV${stringNum}`] != null ? parseFloat(dataListMap[`DV${stringNum}`]) : null;
+                // Para Solarman, currentString é sempre o mesmo que ipv
+                rowData[currentStringCol] = rowData[ipvCol];
 
-            } else {
-                // Growatt (usa d.historyLast.ipvX e d.historyLast.vpvX)
+            } else if (currentPlantConfig.apiType === 'Solplanet') { // --- SOLPLANET ---
+                // Apenas preenche ipv e vpv se o número da string for 8 ou menos
+                if (parseInt(stringNum) <= 8) {
+                    rowData[ipvCol] = sourceData[ipvCol] != null ? sourceData[ipvCol] : null;
+                    rowData[vpvCol] = sourceData[vpvCol] != null ? sourceData[vpvCol] : null;
+                }
+                // Para Solplanet, currentString vem de seu próprio campo
+                rowData[currentStringCol] = sourceData[currentStringCol] != null ? sourceData[currentStringCol] : null;
+
+            } else { // --- GROWATT (Padrão) ---
                 rowData[ipvCol] = (d.historyLast && d.historyLast[ipvCol] != null) ? parseFloat(d.historyLast[ipvCol]) : null;
                 rowData[vpvCol] = (d.historyLast && d.historyLast[vpvCol] != null) ? parseFloat(d.historyLast[vpvCol]) : null;
-            }
 
-            // Lógica para currentStringX, baseada em string_grouping_type
-            if (currentPlantConfig.stringGroupingType === 'ALL_1S') {
-                if (d.historyLast && d.historyLast[currentStringCol] != null) {
-                    rowData[currentStringCol] = parseFloat(d.historyLast[currentStringCol]);
+                // Para Growatt, currentString depende do tipo de agrupamento
+                if (currentPlantConfig.stringGroupingType === 'ALL_1S') {
+                    if (d.historyLast && d.historyLast[currentStringCol] != null) {
+                        rowData[currentStringCol] = parseFloat(d.historyLast[currentStringCol]);
+                    } else {
+                        rowData[currentStringCol] = null;
+                    }
                 } else {
-                    rowData[currentStringCol] = null;
+                    rowData[currentStringCol] = rowData[ipvCol];
                 }
-            } else {
-                rowData[currentStringCol] = rowData[ipvCol];
             }
         }
 
@@ -273,6 +330,9 @@ async function insertDataIntoMySQL(pool, data) {
         if (currentPlantConfig.apiType === 'Solarman' && typeof sourceData.status === 'string') {
             // Para Solarman, o log exibe a string de status original (ex: "Grid connected").
             statusText = sourceData.status;
+        } else if (currentPlantConfig.apiType === 'Solplanet' && typeof d.result?.state === 'string') {
+            // Para Solplanet, usamos o campo 'state' que é mais descritivo (ex: "off-line")
+            statusText = d.result.state;
         } else {
             // Para Growatt (e como fallback), usa o mapa de status numérico.
             statusText = statusMap[statusValue] || `Desconhecido (${statusValue})`;

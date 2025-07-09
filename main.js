@@ -7,7 +7,8 @@ const { promisify } = require('util');
 const mysql = require('mysql2/promise');
 
 const growattApi = require('./growattApi');
-const solarmanApi = require('./solarmanApi'); // NOVO: Importa a API Solarman
+const solarmanApi = require('./solarmanApi');
+const solplanetApi = require('./solplanetApi'); // NOVO: Importa a API Solplanet
 const database = require('./database');
 const logger = require('./logger')('main');
 const telegramNotifier = require('./telegramNotifier');
@@ -180,8 +181,9 @@ async function getPlantConfig(dbPool) {
 /**
  * Fetches, processes, and stores data from the Growatt API.
  * @param {mysql.Pool} dbPool - The MySQL connection pool.
+ * @param {Array<Object>} plantConfigs - The pre-fetched plant configurations.
  */
-async function processGrowattData(dbPool) {
+async function processGrowattData(dbPool, plantConfigs) {
     logger.info('Iniciando busca de dados Growatt...');
     let growattApiSuccess = false;
 
@@ -189,8 +191,6 @@ async function processGrowattData(dbPool) {
         const growatt = await growattApi.login(credentials.growatt.user, credentials.growatt.password);
         logger.info('Login Growatt realizado com sucesso.');
 
-        // Buscar a configuração local para verificar se os inversores da API estão configurados
-        const plantConfigs = await getPlantConfig(dbPool);
         const configuredInverters = new Set(
             plantConfigs.map(pc => `${pc.plant_name}_${pc.inverter_id}`)
         );
@@ -269,12 +269,12 @@ async function processGrowattData(dbPool) {
 /**
  * Fetches, processes, and stores data from the Solarman API.
  * @param {mysql.Pool} dbPool - The MySQL connection pool.
+ * @param {Array<Object>} plantConfigs - The pre-fetched plant configurations.
  */
-async function processSolarmanData(dbPool) {
+async function processSolarmanData(dbPool, plantConfigs) {
     logger.info('Iniciando busca de dados Solarman...');
     let solarmanApiSuccess = false;
     try {
-        const plantConfigs = await getPlantConfig(dbPool);
         const solarmanInverters = plantConfigs.filter(config => config.api_type === 'Solarman');
 
         if (solarmanInverters.length === 0) {
@@ -337,6 +337,81 @@ async function processSolarmanData(dbPool) {
     } finally {
         await updateApiStatus(dbPool, 'Solarman', solarmanApiSuccess);
         logger.info('Busca de dados Solarman concluída.');
+    }
+}
+
+/**
+ * Fetches, processes, and stores data from the Solplanet API.
+ * @param {mysql.Pool} dbPool - The MySQL connection pool.
+ * @param {Array<Object>} plantConfigs - The pre-fetched plant configurations.
+ */
+async function processSolplanetData(dbPool, plantConfigs) {
+    logger.info('Iniciando busca de dados Solplanet...');
+
+    if (credentials.solplanet.enabled === false) {
+        logger.info('Busca de dados Solplanet desabilitada em credentials.json. Pulando.');
+        return;
+    }
+
+    let solplanetApiSuccess = false;
+
+    const solplanetInverters = plantConfigs.filter(config => config.api_type === 'Solplanet');
+
+    if (solplanetInverters.length === 0) {
+        logger.info("Nenhuma planta Solplanet configurada. Pulando busca.");
+        return;
+    }
+
+    try {
+        const auth = await solplanetApi.login(credentials.solplanet.account, credentials.solplanet.pwd);
+        logger.info(`Login Solplanet bem-sucedido. Token: ...${auth.token.slice(-4)}, Cookie: ${auth.cookie}`);
+
+        const solplanetRawData = {};
+        for (const inverter of solplanetInverters) {
+            try {
+                const deviceSn = inverter.inverter_id;
+                const data = await solplanetApi.getInverterDetail(auth, deviceSn);
+                solplanetRawData[deviceSn] = data;
+                logger.info(`Dados Solplanet para ${deviceSn} coletados.`);
+            } catch (solplanetFetchError) {
+                logger.error(`Erro ao buscar dados Solplanet para ${inverter.inverter_id}: ${solplanetFetchError.message}`);
+            }
+        }
+
+        if (Object.keys(solplanetRawData).length > 0) {
+            const solplanetFullFilePath = path.join(raw_data_dir, `solplanet_full_${getFormattedDateForFilename()}.json`);
+            await fs.writeFile(solplanetFullFilePath, JSON.stringify(solplanetRawData, null, ' '));
+            logger.info(`Dados brutos Solplanet salvos em ${solplanetFullFilePath}`);
+
+            const solplanetPlantsData = {};
+            for (const inverter of solplanetInverters) {
+                const plantName = inverter.plant_name;
+                const deviceSn = inverter.inverter_id;
+
+                if (solplanetRawData[deviceSn]) {
+                    if (!solplanetPlantsData[plantName]) {
+                        solplanetPlantsData[plantName] = {
+                            plantName: plantName,
+                            devices: {}
+                        };
+                    }
+                    solplanetPlantsData[plantName].devices[deviceSn] = solplanetRawData[deviceSn];
+                }
+            }
+            const solplanetDataForProcessing = { plants: solplanetPlantsData };
+            await database.insertDataIntoMySQL(dbPool, solplanetDataForProcessing);
+            logger.info('Dados Solplanet inseridos/atualizados no MySQL.');
+        } else {
+            logger.warn('Nenhum dado bruto da Solplanet foi coletado com sucesso.');
+        }
+        solplanetApiSuccess = true;
+
+    } catch (solplanetError) {
+        logger.error(`Erro durante a busca de dados Solplanet: ${solplanetError.message}`);
+        solplanetApiSuccess = false;
+    } finally {
+        await updateApiStatus(dbPool, 'Solplanet', solplanetApiSuccess);
+        logger.info('Busca de dados Solplanet concluída.');
     }
 }
 
@@ -481,15 +556,20 @@ async function retrieveAndProcessData() {
     // Garante que o diretório raw_data exista
     await fs.mkdir(raw_data_dir, { recursive: true });
 
+    // Busca a configuração de todas as plantas UMA VEZ para otimizar
+    const allPlantConfigs = await getPlantConfig(pool);
+
     // Executa as buscas de dados em paralelo para otimizar o tempo
     logger.info('Iniciando buscas de dados das APIs em paralelo...');
     const results = await Promise.allSettled([
-        processGrowattData(pool),
-        processSolarmanData(pool)
+        processGrowattData(pool, allPlantConfigs),
+        processSolarmanData(pool, allPlantConfigs),
+        processSolplanetData(pool, allPlantConfigs) // Adicionado processamento da Solplanet
     ]);
 
     results.forEach((result, index) => {
-        const apiName = index === 0 ? 'Growatt' : 'Solarman';
+        const apiNames = ['Growatt', 'Solarman', 'Solplanet'];
+        const apiName = apiNames[index];
         if (result.status === 'rejected') {
             logger.error(`Processo da API ${apiName} falhou com erro: ${result.reason}`);
         }
