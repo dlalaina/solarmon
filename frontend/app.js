@@ -159,8 +159,8 @@ async function fetchAndRenderPlantsSummary() {
                 statusCircle.classList.add('status-circle', `status-${item.status}`);
                 statusCell.appendChild(statusCircle);
 
-                const eTodayValue = parseFloat(item.e_today);
-                row.insertCell().textContent = `${!isNaN(eTodayValue) ? eTodayValue.toFixed(2) : 'N/A'}`;
+                const genTodayValue = parseFloat(item.gen_today);
+                row.insertCell().textContent = `${!isNaN(genTodayValue) ? genTodayValue.toFixed(2) : 'N/A'}`;
             });
         }
     } catch (error) {
@@ -442,4 +442,3 @@ document.addEventListener('DOMContentLoaded', () => {
         location.reload();
     }, 180 * 1000);
 });
-

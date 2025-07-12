@@ -9,8 +9,8 @@ const moment = require('moment-timezone');
  */
 function mapGrowattData(d) {
     const sourceData = {
-        e_today: d.deviceData.eToday,
-        e_total: d.deviceData.eTotal,
+        gen_today: d.deviceData.eToday,
+        gen_total: d.deviceData.eTotal,
         epv1_today: d.historyLast?.epv1Today,
         epv2_today: d.historyLast?.epv2Today,
         epv3_today: d.historyLast?.epv3Today,
@@ -27,10 +27,13 @@ function mapGrowattData(d) {
         temperature3: d.historyLast?.temperature3,
         temperature4: d.historyLast?.temperature4,
         temperature5: d.historyLast?.temperature5,
+        nominal_power: d.deviceData.nominalPower,
+        frequency_ac: d.historyLast?.fac,
+        output_power: d.deviceData.pac,
         update_status: d.deviceData.status,
-        vacr: d.historyLast?.vacr,
-        vacs: d.historyLast?.vacs,
-        vact: d.historyLast?.vact,
+        voltage_ac1: d.historyLast?.vacr,
+        voltage_ac2: d.historyLast?.vacs,
+        voltage_ac3: d.historyLast?.vact,
         warn_code: d.historyLast?.warnCode,
         pid_fault_code: d.historyLast?.pidFaultCode,
         warn_bit: d.historyLast?.WarnBit,
@@ -57,15 +60,18 @@ function mapSolarmanData(d) {
     }
 
     const sourceData = {
-        e_today: dataListMap.Etdy_ge1,
-        e_total: dataListMap.Et_ge0,
+        gen_today: dataListMap.Etdy_ge1,
+        gen_total: dataListMap.Et_ge0,
         status: dataListMap.INV_ST1,
         temperature2: dataListMap.IGBT_T1,
         temperature3: dataListMap.T_AC_RDT1,
         temperature5: dataListMap.T_IDT1,
-        vacr: dataListMap.AV1,
-        vacs: dataListMap.AV2,
-        vact: dataListMap.AV3,
+        nominal_power: dataListMap.Pr1,
+        frequency_ac: dataListMap.A_Fo1,
+        output_power: dataListMap.APo_t1,
+        voltage_ac1: dataListMap.AV1,
+        voltage_ac2: dataListMap.AV2,
+        voltage_ac3: dataListMap.AV3,
     };
 
     let lastUpdateTimeValue = null;
@@ -86,11 +92,14 @@ function mapSolarmanData(d) {
 function mapSolplanetData(d) {
     const result = d.result || {};
     const sourceData = {
-        e_today: result.etoday?.[0] ? parseFloat(result.etoday[0]) : null,
-        e_total: result.etotal?.[0] ? parseFloat(result.etotal[0]) * 1000 : null, // Convert MWh to kWh
-        vacr: result.vac?.[0] ? parseFloat(result.vac[0]) : null,
-        vacs: result.vac?.[1] ? parseFloat(result.vac[1]) : null,
-        vact: result.vac?.[2] ? parseFloat(result.vac[2]) : null,
+        gen_today: result.etoday?.[0] ? parseFloat(result.etoday[0]) : null,
+        gen_total: result.etotal?.[0] ? parseFloat(result.etotal[0]) * 1000 : null, // Convert MWh to kWh
+        voltage_ac1: result.vac?.[0] ? parseFloat(result.vac[0]) : null,
+        voltage_ac2: result.vac?.[1] ? parseFloat(result.vac[1]) : null,
+        voltage_ac3: result.vac?.[2] ? parseFloat(result.vac[2]) : null,
+        nominal_power: result.maxoutputpower?.[0] ? parseFloat(result.maxoutputpower[0]) : null,
+        frequency_ac: result.fac?.[0] ? parseFloat(result.fac[0]) : null,
+        output_power: result.pac?.[0] ? parseFloat(result.pac[0]) : null,
         status: result.status, // Será mapeado para -1, 1, etc., posteriormente
         device_model: result.devtypename || null,
         temperature: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
@@ -101,16 +110,16 @@ function mapSolplanetData(d) {
         const index = i - 1;
         // ipv e vpv têm no máximo 8 colunas no banco
         if (i <= 8) {
-            if (result.ipv && result.ipv[index] != null) {
-                sourceData[`ipv${i}`] = parseFloat(result.ipv[index]);
+            if (result.ipv && result.ipv[index] != null) { // API ainda envia 'ipv'
+                sourceData[`current_mppt${i}`] = parseFloat(result.ipv[index]);
             }
-            if (result.vpv && result.vpv[index] != null) {
-                sourceData[`vpv${i}`] = parseFloat(result.vpv[index]);
+            if (result.vpv && result.vpv[index] != null) { // API ainda envia 'vpv'
+                sourceData[`voltage_mppt${i}`] = parseFloat(result.vpv[index]);
             }
         }
-        // str_cur tem 16 elementos no exemplo
+        // str_cur tem 16 elementos no exemplo, API envia 'str_cur'
         if (result.str_cur && result.str_cur[index] != null) {
-            sourceData[`currentString${i}`] = parseFloat(result.str_cur[index]);
+            sourceData[`current_string${i}`] = parseFloat(result.str_cur[index]);
         }
     }
 
@@ -233,8 +242,8 @@ async function insertDataIntoMySQL(pool, data) {
           fault_value: sourceData.fault_value != null ? parseInt(sourceData.fault_value) : null,
           update_status: sourceData.update_status != null ? parseInt(sourceData.update_status) : null,
           
-          e_today: sourceData.e_today != null ? parseFloat(sourceData.e_today) : null,
-          e_total: sourceData.e_total != null ? parseFloat(sourceData.e_total) : null,
+          gen_today: sourceData.gen_today != null ? parseFloat(sourceData.gen_today) : null,
+          gen_total: sourceData.gen_total != null ? parseFloat(sourceData.gen_total) : null,
           last_update_time: lastUpdateTimeValue,
           status: (() => {
               if (currentPlantConfig.apiType === 'Solarman' && typeof sourceData.status === 'string') {
@@ -255,16 +264,19 @@ async function insertDataIntoMySQL(pool, data) {
           temperature2: sourceData.temperature2 != null ? parseFloat(sourceData.temperature2) : null,
           temperature3: sourceData.temperature3 != null ? parseFloat(sourceData.temperature3) : null,
           temperature5: sourceData.temperature5 != null ? parseFloat(sourceData.temperature5) : null,
-          vacr: sourceData.vacr != null ? parseFloat(sourceData.vacr) : null,
-          vacs: sourceData.vacs != null ? parseFloat(sourceData.vacs) : null,
-          vact: sourceData.vact != null ? parseFloat(sourceData.vact) : null,
+          voltage_ac1: sourceData.voltage_ac1 != null ? parseFloat(sourceData.voltage_ac1) : null,
+          voltage_ac2: sourceData.voltage_ac2 != null ? parseFloat(sourceData.voltage_ac2) : null,
+          voltage_ac3: sourceData.voltage_ac3 != null ? parseFloat(sourceData.voltage_ac3) : null,
+          nominal_power: sourceData.nominal_power != null ? parseFloat(sourceData.nominal_power) : null,
+          frequency_ac: sourceData.frequency_ac != null ? parseFloat(sourceData.frequency_ac) : null,
+          output_power: sourceData.output_power != null ? parseFloat(sourceData.output_power) : null,
         };
 
         // Populate ipvX, vpvX and currentStringX dynamically based on activeStrings and api_type
         for (const stringNum of activeStrings) {
-            const ipvCol = `ipv${stringNum}`;
-            const vpvCol = `vpv${stringNum}`;
-            const currentStringCol = `currentString${stringNum}`;
+            const currentMpptCol = `current_mppt${stringNum}`;
+            const voltageMpptCol = `voltage_mppt${stringNum}`;
+            const currentStringCol = `current_string${stringNum}`;
 
             if (currentPlantConfig.apiType === 'Solarman') { // --- SOLARMAN ---
                 const dataListMap = {}; 
@@ -273,33 +285,33 @@ async function insertDataIntoMySQL(pool, data) {
                         dataListMap[item.key] = item.value;
                     });
                 }
-                rowData[ipvCol] = dataListMap[`DC${stringNum}`] != null ? parseFloat(dataListMap[`DC${stringNum}`]) : null;
-                rowData[vpvCol] = dataListMap[`DV${stringNum}`] != null ? parseFloat(dataListMap[`DV${stringNum}`]) : null;
+                rowData[currentMpptCol] = dataListMap[`DC${stringNum}`] != null ? parseFloat(dataListMap[`DC${stringNum}`]) : null;
+                rowData[voltageMpptCol] = dataListMap[`DV${stringNum}`] != null ? parseFloat(dataListMap[`DV${stringNum}`]) : null;
                 // Para Solarman, currentString é sempre o mesmo que ipv
-                rowData[currentStringCol] = rowData[ipvCol];
+                rowData[currentStringCol] = rowData[currentMpptCol];
 
             } else if (currentPlantConfig.apiType === 'Solplanet') { // --- SOLPLANET ---
                 // Apenas preenche ipv e vpv se o número da string for 8 ou menos
                 if (parseInt(stringNum) <= 8) {
-                    rowData[ipvCol] = sourceData[ipvCol] != null ? sourceData[ipvCol] : null;
-                    rowData[vpvCol] = sourceData[vpvCol] != null ? sourceData[vpvCol] : null;
+                    rowData[currentMpptCol] = sourceData[currentMpptCol] != null ? sourceData[currentMpptCol] : null;
+                    rowData[voltageMpptCol] = sourceData[voltageMpptCol] != null ? sourceData[voltageMpptCol] : null;
                 }
                 // Para Solplanet, currentString vem de seu próprio campo
                 rowData[currentStringCol] = sourceData[currentStringCol] != null ? sourceData[currentStringCol] : null;
 
             } else { // --- GROWATT (Padrão) ---
-                rowData[ipvCol] = (d.historyLast && d.historyLast[ipvCol] != null) ? parseFloat(d.historyLast[ipvCol]) : null;
-                rowData[vpvCol] = (d.historyLast && d.historyLast[vpvCol] != null) ? parseFloat(d.historyLast[vpvCol]) : null;
+                rowData[currentMpptCol] = (d.historyLast && d.historyLast[`ipv${stringNum}`] != null) ? parseFloat(d.historyLast[`ipv${stringNum}`]) : null;
+                rowData[voltageMpptCol] = (d.historyLast && d.historyLast[`vpv${stringNum}`] != null) ? parseFloat(d.historyLast[`vpv${stringNum}`]) : null;
 
                 // Para Growatt, currentString depende do tipo de agrupamento
                 if (currentPlantConfig.stringGroupingType === 'ALL_1S') {
-                    if (d.historyLast && d.historyLast[currentStringCol] != null) {
-                        rowData[currentStringCol] = parseFloat(d.historyLast[currentStringCol]);
+                    if (d.historyLast && d.historyLast[`currentString${stringNum}`] != null) {
+                        rowData[currentStringCol] = parseFloat(d.historyLast[`currentString${stringNum}`]);
                     } else {
                         rowData[currentStringCol] = null;
                     }
                 } else {
-                    rowData[currentStringCol] = rowData[ipvCol];
+                    rowData[currentStringCol] = rowData[currentMpptCol];
                 }
             }
         }

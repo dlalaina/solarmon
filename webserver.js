@@ -193,7 +193,7 @@ app.get('/api/plants-summary', async (req, res) => {
             SELECT
                 sd.plant_name,
                 sd.inverter_id,
-                sd.e_today,
+                sd.gen_today,
                 COALESCE(sd.pid_fault_code, 0) AS pid_fault_code,
                 COALESCE(sd.fault_value, 0) AS fault_value,
                 COALESCE(sd.fault_type, 0) AS fault_type
@@ -213,14 +213,14 @@ app.get('/api/plants-summary', async (req, res) => {
         `);
 
         // Estrutura para consolidar dados
-        const summary = {}; // Chave: inverter_id, Valor: { plant_name, e_today, status, alarm_types_active, ... }
+        const summary = {}; // Chave: inverter_id, Valor: { plant_name, gen_today, status, alarm_types_active, ... }
 
         // Inicializar o resumo com todos os inversores conhecidos de plant_config
         plantConfigRows.forEach(pc => {
             summary[pc.inverter_id] = {
                 plant_name: pc.plant_name,
                 inverter_id: pc.inverter_id,
-                e_today: null, // Padrão null, será preenchido por solar_data se disponível
+                gen_today: null, // Padrão null, será preenchido por solar_data se disponível
                 status: 'green', // Status padrão
                 alarm_types_active: [],
                 pid_fault_code: 0, // Padrão 0
@@ -232,7 +232,7 @@ app.get('/api/plants-summary', async (req, res) => {
         // Sobrepor com os dados mais recentes de solar_data (para inversores que têm dados)
         solarDataRows.forEach(sd => {
             if (summary[sd.inverter_id]) { // Garante que é um inversor configurado
-                summary[sd.inverter_id].e_today = sd.e_today;
+                summary[sd.inverter_id].gen_today = sd.gen_today;
                 summary[sd.inverter_id].pid_fault_code = sd.pid_fault_code;
                 summary[sd.inverter_id].fault_value = sd.fault_value;
                 summary[sd.inverter_id].fault_type = sd.fault_type;

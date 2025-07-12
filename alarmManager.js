@@ -113,7 +113,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
 
         // --- STRING-DOWN Detection ---
         for (const stringNum of activeStrings) {
-            const currentStringKey = `currentString${stringNum}`;
+            const currentStringKey = `current_string${stringNum}`;
             const alarmType = 'STRING-DOWN';
             const alarmSeverity = 'High';
 
@@ -138,7 +138,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
             const stringCurrentValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null;
 
             if (stringCurrentValue === null) {
-                logger.warn(`Dados de currentString${stringNum} não encontrados para Inversor: ${inverterId} na Planta: ${plantName}, apesar de estar em active_strings_config. Pulando esta string.`);
+                logger.warn(`Dados de current_string${stringNum} não encontrados para Inversor: ${inverterId} na Planta: ${plantName}, apesar de estar em active_strings_config. Pulando esta string.`);
                 continue;
             }
 
@@ -205,11 +205,11 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
 
         // --- MPPT Partial Fault (ONE-STRING-DOWN / TWO-STRINGS-DOWN) Detection ---
         for (const stringNum of activeStrings) {
-            const currentStringKey = `currentString${stringNum}`;
+            const currentStringKey = `current_string${stringNum}`;
             const currentStringValue = detection[currentStringKey] !== undefined ? parseFloat(detection[currentStringKey] || 0) : null;
 
             if (currentStringValue === null) {
-                logger.warn(`Dados de currentString${stringNum} não encontrados para detecção de falha parcial para Inversor: ${inverterId} na Planta: ${plantName}. Pulando esta string.`);
+                logger.warn(`Dados de current_string${stringNum} não encontrados para detecção de falha parcial para Inversor: ${inverterId} na Planta: ${plantName}. Pulando esta string.`);
                 continue;
             }
 
@@ -690,19 +690,19 @@ async function checkAndManageAlarms(pool, adminChatId) {
                 pc.api_type,
                 pi.owner_chat_id,
                 sd.status,
-                sd.currentString1, sd.currentString2, sd.currentString3, sd.currentString4,
-                sd.currentString5, sd.currentString6, sd.currentString7, sd.currentString8,
-                sd.currentString9, sd.currentString10, sd.currentString11, sd.currentString12,
-                sd.currentString13, sd.currentString14, sd.currentString15, sd.currentString16,
+                sd.current_string1, sd.current_string2, sd.current_string3, sd.current_string4,
+                sd.current_string5, sd.current_string6, sd.current_string7, sd.current_string8,
+                sd.current_string9, sd.current_string10, sd.current_string11, sd.current_string12,
+                sd.current_string13, sd.current_string14, sd.current_string15, sd.current_string16,
                 CAST(GREATEST(
-                    COALESCE(sd.currentString1, 0), COALESCE(sd.currentString2, 0),
-                    COALESCE(sd.currentString3, 0), COALESCE(sd.currentString4, 0),
-                    COALESCE(sd.currentString5, 0), COALESCE(sd.currentString6, 0),
-                    COALESCE(sd.currentString7, 0), COALESCE(sd.currentString8, 0),
-                    COALESCE(sd.currentString9, 0), COALESCE(sd.currentString10, 0),
-                    COALESCE(sd.currentString11, 0), COALESCE(sd.currentString12, 0),
-                    COALESCE(sd.currentString13, 0), COALESCE(sd.currentString14, 0),
-                    COALESCE(sd.currentString15, 0), COALESCE(sd.currentString16, 0)
+                    COALESCE(sd.current_string1, 0), COALESCE(sd.current_string2, 0),
+                    COALESCE(sd.current_string3, 0), COALESCE(sd.current_string4, 0),
+                    COALESCE(sd.current_string5, 0), COALESCE(sd.current_string6, 0),
+                    COALESCE(sd.current_string7, 0), COALESCE(sd.current_string8, 0),
+                    COALESCE(sd.current_string9, 0), COALESCE(sd.current_string10, 0),
+                    COALESCE(sd.current_string11, 0), COALESCE(sd.current_string12, 0),
+                    COALESCE(sd.current_string13, 0), COALESCE(sd.current_string14, 0),
+                    COALESCE(sd.current_string15, 0), COALESCE(sd.current_string16, 0)
                 ) AS DECIMAL(10,2)) AS greatest_current_string
             FROM
                 plant_config pc
@@ -717,7 +717,7 @@ async function checkAndManageAlarms(pool, adminChatId) {
         // Preparar dados (conversão de tipos)
         dayIpvAlarms.forEach(detection => {
             for (let i = 1; i <= 16; i++) {
-                const currentStringKey = `currentString${i}`;
+                const currentStringKey = `current_string${i}`;
                 detection[currentStringKey] = parseFloat(detection[currentStringKey] || 0);
             }
             detection.greatest_current_string = parseFloat(detection.greatest_current_string || 0);
