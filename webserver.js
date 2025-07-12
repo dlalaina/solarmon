@@ -194,6 +194,8 @@ app.get('/api/plants-summary', async (req, res) => {
                 sd.plant_name,
                 sd.inverter_id,
                 sd.gen_today,
+                sd.nominal_power,
+                sd.output_power,
                 COALESCE(sd.pid_fault_code, 0) AS pid_fault_code,
                 COALESCE(sd.fault_value, 0) AS fault_value,
                 COALESCE(sd.fault_type, 0) AS fault_type
@@ -221,6 +223,8 @@ app.get('/api/plants-summary', async (req, res) => {
                 plant_name: pc.plant_name,
                 inverter_id: pc.inverter_id,
                 gen_today: null, // Padrão null, será preenchido por solar_data se disponível
+                nominal_power: null,
+                output_power: null,
                 status: 'green', // Status padrão
                 alarm_types_active: [],
                 pid_fault_code: 0, // Padrão 0
@@ -233,6 +237,8 @@ app.get('/api/plants-summary', async (req, res) => {
         solarDataRows.forEach(sd => {
             if (summary[sd.inverter_id]) { // Garante que é um inversor configurado
                 summary[sd.inverter_id].gen_today = sd.gen_today;
+                summary[sd.inverter_id].nominal_power = sd.nominal_power;
+                summary[sd.inverter_id].output_power = sd.output_power;
                 summary[sd.inverter_id].pid_fault_code = sd.pid_fault_code;
                 summary[sd.inverter_id].fault_value = sd.fault_value;
                 summary[sd.inverter_id].fault_type = sd.fault_type;
@@ -245,6 +251,25 @@ app.get('/api/plants-summary', async (req, res) => {
             // Prioridade 1: Status vermelho de códigos de falha de solar_data
             if (item.pid_fault_code !== 0 || item.fault_value !== 0 || item.fault_type !== 0) {
                 item.status = 'red';
+            }
+
+            // Calcula a porcentagem da potência atual
+            const nominal = parseFloat(item.nominal_power);
+            const output = parseFloat(item.output_power);
+            let percentage = 0;
+
+            if (nominal > 0 && output >= 0) {
+                percentage = (output / nominal) * 100;
+                if (percentage > 100) {
+                    percentage = 100;
+                }
+            }
+            item.current_power_percentage = percentage;
+
+            // Converte a potência nominal de W para kW para exibição no frontend
+            // Isso é feito APÓS o cálculo da porcentagem para manter a proporção correta (W/W)
+            if (item.nominal_power !== null) {
+                item.nominal_power = parseFloat(item.nominal_power) / 1000;
             }
         });
 

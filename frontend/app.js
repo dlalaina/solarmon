@@ -155,17 +155,32 @@ async function fetchAndRenderPlantsSummary() {
                 row.insertCell().textContent = item.inverter_id;
                 
                 const statusCell = row.insertCell();
+                statusCell.classList.add('text-center');
                 const statusCircle = document.createElement('span');
                 statusCircle.classList.add('status-circle', `status-${item.status}`);
                 statusCell.appendChild(statusCircle);
 
+                const genTodayCell = row.insertCell();
+                genTodayCell.classList.add('text-center');
                 const genTodayValue = parseFloat(item.gen_today);
-                row.insertCell().textContent = `${!isNaN(genTodayValue) ? genTodayValue.toFixed(2) : 'N/A'}`;
+                genTodayCell.textContent = `${!isNaN(genTodayValue) ? genTodayValue.toFixed(2) : 'N/A'}`;
+
+                const nominalPowerCell = row.insertCell();
+                nominalPowerCell.classList.add('text-center');
+                const nominalPowerValue = parseFloat(item.nominal_power);
+                nominalPowerCell.textContent = !isNaN(nominalPowerValue) ? nominalPowerValue.toFixed(0) : 'N/A';
+
+                const currentPowerCell = row.insertCell();
+                currentPowerCell.classList.add('text-center');
+                const currentPowerPercentage = parseFloat(item.current_power_percentage);
+                // Exibe com o símbolo de porcentagem
+                currentPowerCell.textContent = !isNaN(currentPowerPercentage) ? `${currentPowerPercentage.toFixed(2)} %` : 'N/A';
             });
         }
     } catch (error) {
         console.error("Erro ao buscar resumo das plantas:", error);
-        plantsSummaryTableBody.innerHTML = `<tr><td colspan="4" style="color: red; text-align: center;">Erro ao carregar resumo: ${error.message}</td></tr>`;
+        // Atualiza o colspan para o novo número de colunas (6)
+        plantsSummaryTableBody.innerHTML = `<tr><td colspan="6" style="color: red; text-align: center;">Erro ao carregar resumo: ${error.message}</td></tr>`;
         noPlantsSummaryMessage.classList.add('hidden');
     } finally {
         loadingSummaryIndicator.classList.add('hidden');
