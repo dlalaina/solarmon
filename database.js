@@ -97,9 +97,9 @@ function mapSolplanetData(d) {
         voltage_ac1: result.vac?.[0] ? parseFloat(result.vac[0]) : null,
         voltage_ac2: result.vac?.[1] ? parseFloat(result.vac[1]) : null,
         voltage_ac3: result.vac?.[2] ? parseFloat(result.vac[2]) : null,
-        nominal_power: result.maxoutputpower?.[0] ? parseFloat(result.maxoutputpower[0]) : null,
+        nominal_power: result.maxoutputpower != null ? parseFloat(Array.isArray(result.maxoutputpower) ? result.maxoutputpower[0] : result.maxoutputpower) : null,
         frequency_ac: result.fac?.[0] ? parseFloat(result.fac[0]) : null,
-        output_power: result.pac?.[0] ? parseFloat(result.pac[0]) : null,
+        output_power: result.pac != null ? parseFloat(Array.isArray(result.pac) ? result.pac[0] : result.pac) : null,
         status: result.status, // Será mapeado para -1, 1, etc., posteriormente
         device_model: result.devtypename || null,
         temperature: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
