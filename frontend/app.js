@@ -48,7 +48,10 @@ function escapeHTML(str) {
 
 // Verifica se o usuário está logado
 function isLoggedIn() {
-    return localStorage.getItem('accessToken') !== null;
+    // A verificação agora é baseada no nome de usuário salvo,
+    // já que o token em si não é mais acessível via JS.
+    // O servidor validará o cookie em cada requisição.
+    return localStorage.getItem('username') !== null;
 }
 
 // Obtém o nome de usuário logado
@@ -94,8 +97,7 @@ async function handleLogin(event) {
         const data = await response.json();
 
         if (response.ok) {
-            localStorage.setItem('accessToken', data.accessToken);
-            localStorage.setItem('username', data.username);
+            localStorage.setItem('username', data.username); // Apenas o nome de usuário é salvo
             loginModal.classList.add('hidden'); // Esconde o modal
             updateAuthUI(); // Atualiza a UI
             usernameInput.value = ''; // Limpa campos
@@ -114,11 +116,20 @@ async function handleLogin(event) {
 }
 
 // Lógica de Logout
-function handleLogout() {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('username');
-    updateAuthUI();
-    console.log("Logout realizado.");
+async function handleLogout() {
+    try {
+        const response = await fetch('/api/logout', { method: 'POST' });
+        if (!response.ok) {
+            console.error("Falha no logout do servidor, mas limpando localmente.");
+        }
+    } catch (error) {
+        console.error("Erro de rede ao fazer logout:", error);
+    } finally {
+        // Limpa o estado do frontend independentemente da resposta do servidor
+        localStorage.removeItem('username');
+        updateAuthUI();
+        console.log("Logout realizado.");
+    }
 }
 
 // --- FUNÇÃO PARA BUSCAR E RENDERIZAR O RESUMO DAS PLANTAS ---
@@ -128,7 +139,7 @@ async function fetchAndRenderPlantsSummary() {
     noPlantsSummaryMessage.classList.add('hidden');
 
     try {
-        const response = await fetch('/api/plants-summary'); // Novo endpoint
+        const response = await fetch('/api/plants-summary');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -279,13 +290,8 @@ async function clearAlarm(alarmId, buttonElement) {
     buttonElement.classList.add('loading-button');
 
     try {
-        const accessToken = localStorage.getItem('accessToken');
         const response = await fetch(`/api/clear-alarm/${alarmId}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${accessToken}` // Inclui o token JWT
-            }
         });
 
         const result = await response.json();
@@ -365,13 +371,9 @@ document.addEventListener('click', async (event) => {
         target.nextSibling.disabled = true;
 
         try {
-            const accessToken = localStorage.getItem('accessToken'); // Obtém o token
             const response = await fetch(`/api/alarms/${alarmId}/observation`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}` // Envia o token
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ observation: newObservation })
             });
 

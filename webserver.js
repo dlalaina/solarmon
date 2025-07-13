@@ -61,8 +61,8 @@ app.use(express.json()); // Middleware para parsear JSON no corpo da requisiçã
 
 // --- MIDDLEWARE DE AUTENTICAÇÃO ---
 function authenticateToken(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Formato: Bearer TOKEN
+    // Lê o token do cookie em vez do header Authorization
+    const token = req.cookies.accessToken;
 
     if (token == null) return res.status(401).json({ message: 'Token de autenticação ausente.' });
 
@@ -84,57 +84,29 @@ app.post('/api/login', (req, res) => {
     // Autenticação usando credenciais do credentials.json
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
         const user = { name: username, role: 'admin' }; // Payload do token
-        const accessToken = jwt.sign(user, JWT_SECRET, { expiresIn: '1h' }); // Token expira em 1 hora
-        res.json({ accessToken: accessToken, username: user.name });
+        const accessToken = jwt.sign(user, JWT_SECRET, { expiresIn: '8h' }); // Token expira em 8 horas
+
+        // Define o token em um cookie httpOnly, que é mais seguro
+        res.cookie('accessToken', accessToken, {
+            httpOnly: true, // O cookie não pode ser acessado por JavaScript no cliente
+            secure: process.env.NODE_ENV === 'production', // Enviar apenas sobre HTTPS (essencial em produção)
+            sameSite: 'strict', // Mitiga ataques CSRF
+            maxAge: 8 * 60 * 60 * 1000 // 8 horas em milissegundos
+        });
+
+        res.json({ message: "Login bem-sucedido", username: user.name });
     } else {
         res.status(401).json({ message: 'Credenciais inválidas.' });
     }
 });
 
-// --- ENDPOINT PARA O WEBHOOK DO TELEGRAM ---
-app.post('/telegram-webhook', async (req, res) => {
-    res.sendStatus(200);
-
-    const update = req.body;
-    if (!update || !update.message) {
-        return;
-    }
-
-    const msg = update.message;
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const userName = msg.from.username;
-    const firstName = msg.from.first_name;
-    const lastName = msg.from.last_name;
-    const messageText = msg.text;
-    
-    const logEntry = `CHAT_ID: ${chatId}, USER_ID: ${userId}, USERNAME: ${userName || 'N/A'}, NAME: ${firstName || ''} ${lastName || ''}, MESSAGE: "${messageText}"`;
-    
-    // Log da mensagem recebida
-    logger.info(`Mensagem recebida do Telegram: ${logEntry}`);
-
-    // --- Lógica para o comando "cadastrar" ---
-    if (messageText && typeof messageText === 'string' && messageText.toLowerCase().includes('cadastrar')) {
-        try {
-            await sendTelegramMessage('Obrigado por se cadastrar. Seu ID de chat foi registrado.', chatId);
-            logger.info(`Enviado mensagem de cadastro para ${firstName || userName || userId} (Chat ID: ${chatId}).`);
-
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Espera 1 segundo
-
-            const adminNotificationMessage =
-                `Novo cadastro de usuário:\n` +
-                `CHAT_ID: <code>${chatId}</code>\n` +
-                `USER_ID: <code>${userId}</code>\n` +
-                `USERNAME: ${userName || 'N/A'}\n` +
-                `NOME: ${firstName || ''} ${lastName || ''}`;
-
-            await sendTelegramMessage(adminNotificationMessage, adminChatId);
-            logger.info('Notificação de novo cadastro enviada para o admin.');
-
-        } catch (error) {
-            logger.error(`Erro ao processar comando 'cadastrar' ou enviar notificação para ${chatId}: ${error.response ? error.response.data : error.message}`);
-        }
-    }
+// Rota de Logout
+app.post('/api/logout', (req, res) => {
+    res.cookie('accessToken', '', {
+        httpOnly: true,
+        expires: new Date(0) // Expira o cookie imediatamente
+    });
+    res.status(200).json({ message: 'Logout bem-sucedido.' });
 });
 
 // --- Rotas da API existentes (não protegidas ainda) ---
