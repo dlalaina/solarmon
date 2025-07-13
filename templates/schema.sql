@@ -207,7 +207,6 @@ CREATE TABLE `solar_data` (
   `temperature` decimal(10,2) DEFAULT NULL,
   `temperature2` decimal(10,2) DEFAULT NULL,
   `temperature3` decimal(10,2) DEFAULT NULL,
-  `temperature4` decimal(10,2) DEFAULT NULL,
   `temperature5` decimal(10,2) DEFAULT NULL,
   `update_status` int DEFAULT NULL,
   `voltage_ac1` decimal(10,2) DEFAULT NULL,
@@ -256,7 +255,7 @@ CREATE TABLE `solar_data` (
   KEY `idx_plant_name` (`plant_name`),
   KEY `idx_inverter_last_update` (`inverter_id`,`last_update_time` DESC),
   KEY `idx_last_update_time` (`last_update_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=3056 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3199 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
