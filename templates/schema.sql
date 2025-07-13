@@ -178,6 +178,7 @@ DROP TABLE IF EXISTS `solar_data`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `solar_data` (
+  `id` int NOT NULL AUTO_INCREMENT,
   `plant_name` varchar(50) NOT NULL,
   `inverter_id` varchar(20) NOT NULL,
   `bdc_status` int DEFAULT NULL,
@@ -250,9 +251,12 @@ CREATE TABLE `solar_data` (
   `nominal_power` decimal(10,2) DEFAULT NULL,
   `frequency_ac` decimal(10,2) DEFAULT NULL,
   `output_power` decimal(10,2) DEFAULT NULL,
-  PRIMARY KEY (`plant_name`,`inverter_id`),
-  KEY `idx_plant_name` (`plant_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uc_inverter_time` (`inverter_id`,`last_update_time`),
+  KEY `idx_plant_name` (`plant_name`),
+  KEY `idx_inverter_last_update` (`inverter_id`,`last_update_time` DESC),
+  KEY `idx_last_update_time` (`last_update_time`)
+) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
