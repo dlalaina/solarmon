@@ -479,8 +479,12 @@ async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillAct
             pi.owner_chat_id
         FROM
             plant_config pc
-        LEFT JOIN
-            solar_data sd ON pc.plant_name = sd.plant_name AND pc.inverter_id = sd.inverter_id
+        LEFT JOIN (
+            SELECT inverter_id, MAX(last_update_time) AS max_time
+            FROM solar_data
+            GROUP BY inverter_id
+        ) AS latest_sd ON pc.inverter_id = latest_sd.inverter_id
+        LEFT JOIN solar_data sd ON latest_sd.inverter_id = sd.inverter_id AND latest_sd.max_time = sd.last_update_time
         LEFT JOIN plant_info pi ON pc.plant_name = pi.plant_name
         WHERE
             (pc.api_type = 'Growatt' AND (sd.last_update_time IS NULL OR sd.last_update_time < NOW() - INTERVAL 30 MINUTE OR sd.status = -1))
@@ -676,11 +680,9 @@ async function checkAndManageAlarms(pool, adminChatId) {
         const growattGracePeriodUntil = apiStatusRows.length > 0 ? new Date(apiStatusRows[0].recovery_grace_period_until) : null;
         // 2. Obter TODOS os inversores configurados e seus dados MAIS RECENTES de solar_data.
         // A consulta usa um LEFT JOIN direto de plant_config para solar_data.
-        // Isso é eficiente porque a tabela solar_data, devido ao ON DUPLICATE KEY UPDATE,
-        // já contém apenas o registro mais recente por inversor.
-        // Isso garante que todos os inversores, mesmo os offline ou sem dados recentes,
-        // sejam incluídos na análise para que a lógica a jusante decida se um alarme
-        // existente deve ser mantido ou limpo.
+        // Com o histórico, a consulta agora usa uma subquery para encontrar o MAX(last_update_time)
+        // para cada inversor e então junta com a tabela solar_data para obter os dados completos.
+        // Isso garante que estamos sempre analisando os dados mais frescos.
         const [dayIpvAlarms] = await connection.execute(`
             SELECT
                 pc.plant_name,
@@ -706,8 +708,12 @@ async function checkAndManageAlarms(pool, adminChatId) {
                 ) AS DECIMAL(10,2)) AS greatest_current_string
             FROM
                 plant_config pc
-            LEFT JOIN
-                solar_data sd ON pc.plant_name = sd.plant_name AND pc.inverter_id = sd.inverter_id
+            LEFT JOIN (
+                SELECT inverter_id, MAX(last_update_time) AS max_time
+                FROM solar_data
+                GROUP BY inverter_id
+            ) AS latest_sd ON pc.inverter_id = latest_sd.inverter_id
+            LEFT JOIN solar_data sd ON latest_sd.inverter_id = sd.inverter_id AND latest_sd.max_time = sd.last_update_time
             LEFT JOIN
                 plant_info pi ON pc.plant_name = pi.plant_name
             ORDER BY

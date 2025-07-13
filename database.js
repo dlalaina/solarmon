@@ -318,40 +318,38 @@ async function insertDataIntoMySQL(pool, data) {
 
         const columns = Object.keys(rowData).join(', ');
         const placeholders = Object.keys(rowData).map(() => '?').join(', ');
-        const updateAssignments = Object.keys(rowData)
-          .filter(key => key !== 'plant_name' && key !== 'inverter_id')
-          .map(key => `\`${key}\` = VALUES(\`${key}\`)`)
-          .join(', ');
 
-        const sql = `INSERT INTO solar_data (${columns}) VALUES (${placeholders})
-                     ON DUPLICATE KEY UPDATE ${updateAssignments}`;
+        // A cláusula ON DUPLICATE KEY UPDATE foi removida para permitir o armazenamento de histórico.
+        // Usamos INSERT IGNORE para evitar erros de chave duplicada se a API retornar o mesmo timestamp
+        // em coletas consecutivas. Isso acontece quando um inversor não envia novos dados.
+        const sql = `INSERT IGNORE INTO solar_data (${columns}) VALUES (${placeholders})`;
 
         const values = Object.values(rowData);
-        
-        await connection.execute(sql, values);
+        const [result] = await connection.execute(sql, values);
 
         // Log aprimorado para incluir status e data de atualização
-        const statusMap = {
-          '-1': 'OFFLINE',    // Padrão Growatt e Solarman
-          '0': 'AGUARDANDO',  // Padrão Growatt (Waiting)
-          '1': 'ONLINE'       // Padrão Growatt (Online) e Solarman (Grid-Connected)
-        };
-        const statusValue = rowData.status;
-
-        let statusText;
-        if (currentPlantConfig.apiType === 'Solarman' && typeof sourceData.status === 'string') {
-            // Para Solarman, o log exibe a string de status original (ex: "Grid connected").
-            statusText = sourceData.status;
-        } else if (currentPlantConfig.apiType === 'Solplanet' && typeof d.result?.state === 'string') {
-            // Para Solplanet, usamos o campo 'state' que é mais descritivo (ex: "off-line")
-            statusText = d.result.state;
-        } else {
-            // Para Growatt (e como fallback), usa o mapa de status numérico.
-            statusText = statusMap[statusValue] || `Desconhecido (${statusValue})`;
-        }
-
         const updateTimeText = rowData.last_update_time || 'N/A';
-        logger.info(`Inserido/Atualizado dado para Planta: ${plantName}, Inversor: ${deviceId} (Status: ${statusText}, Update: ${updateTimeText})`);
+
+        if (result.affectedRows > 0) {
+            const statusMap = {
+              '-1': 'OFFLINE',    // Padrão Growatt e Solarman
+              '0': 'AGUARDANDO',  // Padrão Growatt (Waiting)
+              '1': 'ONLINE'       // Padrão Growatt (Online) e Solarman (Grid-Connected)
+            };
+            const statusValue = rowData.status;
+
+            let statusText;
+            if (currentPlantConfig.apiType === 'Solarman' && typeof sourceData.status === 'string') {
+                statusText = sourceData.status;
+            } else if (currentPlantConfig.apiType === 'Solplanet' && typeof d.result?.state === 'string') {
+                statusText = d.result.state;
+            } else {
+                statusText = statusMap[statusValue] || `Desconhecido (${statusValue})`;
+            }
+            logger.info(`Inserido novo registro para Planta: ${plantName}, Inversor: ${deviceId} (Status: ${statusText}, Update: ${updateTimeText})`);
+        } else {
+            logger.info(`Registro ignorado (duplicado) para Planta: ${plantName}, Inversor: ${deviceId} (Update: ${updateTimeText})`);
+        }
       }
     }
     await connection.commit();
@@ -359,7 +357,7 @@ async function insertDataIntoMySQL(pool, data) {
     if (connection) {
       await connection.rollback();
     }
-    logger.error(`Erro ao inserir dados no MySQL: ${dbError.stack}`);
+    logger.error(`Erro ao inserir dados no MySQL: ${dbError.message}`);
     throw dbError;
   } finally {
     if (connection) {

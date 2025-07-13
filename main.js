@@ -163,6 +163,29 @@ async function manageRawDataFiles() {
     logger.info('Gerenciamento de arquivos de dados brutos concluído.');
 }
 
+/**
+ * Deleta dados históricos da tabela solar_data que são mais antigos que o período de retenção.
+ * @param {mysql.Pool} dbPool - O pool de conexões MySQL.
+ */
+async function pruneOldSolarData(dbPool) {
+    logger.info('Iniciando limpeza de dados históricos da tabela solar_data...');
+    let connection;
+    try {
+        connection = await dbPool.getConnection();
+        const retentionDays = 90; // Período de retenção de 90 dias
+        const [result] = await connection.execute(
+            `DELETE FROM solar_data WHERE last_update_time <= NOW() - INTERVAL ? DAY`,
+            [retentionDays]
+        );
+        logger.info(`Limpeza de dados históricos concluída. ${result.affectedRows} registros com mais de ${retentionDays} dias foram removidos.`);
+    } catch (error) {
+        logger.error(`Erro ao limpar dados históricos da solar_data: ${error.message}`);
+        // Não relançamos o erro para não parar a execução principal por uma falha na limpeza.
+    } finally {
+        if (connection) connection.release();
+    }
+}
+
 // Função para buscar a configuração da planta do banco de dados
 async function getPlantConfig(dbPool) {
     let connection;
@@ -639,6 +662,9 @@ async function retrieveAndProcessData() {
 
     // Executa o gerenciamento dos arquivos de dados brutos
     await manageRawDataFiles();
+
+    // Executa a limpeza de dados históricos do banco
+    await pruneOldSolarData(pool);
 
     await retrieveAndProcessData();
 
