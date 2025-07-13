@@ -104,7 +104,7 @@ function mapSolplanetData(d) {
         device_model: result.devtypename || null,
         temperature: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
     };
-
+    
     // Mapeia dinamicamente os arrays ipv, vpv e str_cur
     for (let i = 1; i <= 16; i++) {
         const index = i - 1;
@@ -121,6 +121,11 @@ function mapSolplanetData(d) {
         if (result.str_cur && result.str_cur[index] != null) {
             sourceData[`current_string${i}`] = parseFloat(result.str_cur[index]);
         }
+    }
+
+    // A API da Solplanet retorna 'pac' em kW, então precisamos converter para W para manter a consistência com outras APIs.
+    if (sourceData.output_power !== null) {
+        sourceData.output_power *= 1000; // Convert kW to W
     }
 
     const lastUpdateTimeValue = result.ludt?.[0] ? moment(result.ludt[0]).format('YYYY-MM-DD HH:mm:ss') : null;
