@@ -25,7 +25,6 @@ function mapGrowattData(d) {
         temperature: d.historyLast?.temperature,
         temperature2: d.historyLast?.temperature2,
         temperature3: d.historyLast?.temperature3,
-        temperature4: d.historyLast?.temperature4,
         temperature5: d.historyLast?.temperature5,
         nominal_power: d.deviceData.nominalPower,
         frequency_ac: d.historyLast?.fac,
@@ -60,19 +59,29 @@ function mapSolarmanData(d) {
     }
 
     const sourceData = {
-        gen_today: dataListMap.Etdy_ge1,
-        gen_total: dataListMap.Et_ge0,
-        status: dataListMap.INV_ST1,
-        temperature2: dataListMap.IGBT_T1,
-        temperature3: dataListMap.T_AC_RDT1,
-        temperature5: dataListMap.T_IDT1,
-        nominal_power: dataListMap.Pr1,
-        frequency_ac: dataListMap.A_Fo1,
-        output_power: dataListMap.APo_t1,
-        voltage_ac1: dataListMap.AV1,
-        voltage_ac2: dataListMap.AV2,
-        voltage_ac3: dataListMap.AV3,
+        gen_today: dataListMap.Etdy_ge1,      // Daily Production (Active)
+        gen_total: dataListMap.Et_ge0,      // Cumulative Production (Active)
+        status: dataListMap.INV_ST1,          // Inverter status
+        temperature2: dataListMap.IGBT_T1,    // Heat-sink Temperature
+        temperature3: dataListMap.T_AC_RDT1,  // DC-DC Temperature
+        temperature5: dataListMap.T_IDT1,     // Inductor Temperature 1
+        nominal_power: dataListMap.Pr1,       // Rated Power
+        frequency_ac: dataListMap.A_Fo1,      // AC Output Frequency R
+        output_power: dataListMap.APo_t1,     // Total AC Output Power (Active)
+        voltage_ac1: dataListMap.AV1,         // AC Voltage R/U/A
+        voltage_ac2: dataListMap.AV2,         // AC Voltage S/V/B
+        voltage_ac3: dataListMap.AV3,         // AC Voltage T/W/C
     };
+
+    // BUGFIX: A API da Solarman pode retornar -100.00 para campos de temperatura,
+    // o que é um valor inválido. Nesses casos, convertemos para NULL.
+    // Usamos '==' para cobrir tanto o número -100 quanto a string "-100.00".
+    if (sourceData.temperature2 == -100) {
+        sourceData.temperature2 = null;
+    }
+    if (sourceData.temperature5 == -100) {
+        sourceData.temperature5 = null;
+    }
 
     let lastUpdateTimeValue = null;
     if (d.collectionTime != null) {
@@ -102,7 +111,7 @@ function mapSolplanetData(d) {
         output_power: result.pac != null ? parseFloat(Array.isArray(result.pac) ? result.pac[0] : result.pac) : null,
         status: result.status, // Será mapeado para -1, 1, etc., posteriormente
         device_model: result.devtypename || null,
-        temperature: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
+        temperature2: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
     };
     
     // Mapeia dinamicamente os arrays ipv, vpv e str_cur
@@ -237,7 +246,6 @@ async function insertDataIntoMySQL(pool, data) {
           epv7_today: sourceData.epv7_today != null ? parseFloat(sourceData.epv7_today) : null,
           epv8_today: sourceData.epv8_today != null ? parseFloat(sourceData.epv8_today) : null,
           temperature: sourceData.temperature != null ? parseFloat(sourceData.temperature) : null,
-          temperature4: sourceData.temperature4 != null ? parseFloat(sourceData.temperature4) : null,
           warn_code: sourceData.warn_code != null ? parseInt(sourceData.warn_code) : null,
           pid_fault_code: sourceData.pid_fault_code != null ? parseInt(sourceData.pid_fault_code) : null,
           warn_bit: sourceData.warn_bit != null ? parseInt(sourceData.warn_bit) : null,
