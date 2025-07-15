@@ -8,6 +8,16 @@ const path = require('path');
 const API_BASE_URL = 'https://internation-pro-cloud.solplanet.net/api';
 const AUTH_CACHE_FILE = path.join(__dirname, 'solplanet_auth_cache.json');
 
+const COMMON_HEADERS = {
+    'Accept': 'application/json',
+    'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
+    'Content-Type': 'application/json',
+    'Origin': 'https://internation-pro-cloud.solplanet.net',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+    'localE': 'en_US'
+};
+
+
 /**
  * Realiza o login na API da Solplanet e retorna o token de autenticação e o cookie acw_tc.
  * @param {string} account - O nome de usuário (e-mail).
@@ -23,13 +33,8 @@ async function login(account, pwd) {
     };
 
     const headers = {
-        'Accept': 'application/json',
-        'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
-        'Content-Type': 'application/json',
-        'Origin': 'https://internation-pro-cloud.solplanet.net',
+        ...COMMON_HEADERS,
         'Referer': 'https://internation-pro-cloud.solplanet.net/user/login',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        'localE': 'en_US'
     };
 
     try {
@@ -86,27 +91,16 @@ async function getAuthCredentials(account, pwd) {
 }
 
 /**
- * Força a renovação do token, notifica sobre a expiração do antigo e salva o novo no cache.
+ * Força a renovação do token (silenciosamente) e salva o novo no cache.
  * @param {string} account - O nome de usuário (e-mail).
  * @param {string} pwd - A senha.
  * @param {Error} originalError - O erro que acionou a renovação.
  * @returns {Promise<string>} O novo token de autenticação.
  */
 async function forceTokenRefresh(account, pwd, originalError) {
-    logger.warn(`Forçando a renovação do token Solplanet devido ao erro: ${originalError.message}`);
-    let oldTokenCreatedAt = 'desconhecida';
-    try {
-        const oldCacheData = await fs.readFile(AUTH_CACHE_FILE, 'utf8');
-        const oldCache = JSON.parse(oldCacheData);
-        const durationMs = Date.now() - oldCache.createdAt;
-        const durationHours = (durationMs / (1000 * 60 * 60)).toFixed(2);
-        oldTokenCreatedAt = `O token anterior durou aproximadamente ${durationHours} horas.`;
-    } catch (e) { /* Ignora se não conseguir ler o cache antigo */ }
-
-    const errorDetails = originalError.response ? `Status ${originalError.response.status}` : originalError.message;
-    const notificationMessage = `🔄 <b>RENOVAÇÃO DE TOKEN: Solplanet</b> 🔄\nO token de acesso expirou ou tornou-se inválido.\n\n<b>Detalhes do Erro:</b> ${errorDetails}\n<b>Duração:</b> ${oldTokenCreatedAt}\n\nUm novo token será solicitado.`;
-    await telegramNotifier.sendTelegramMessage(notificationMessage);
-    logger.info(notificationMessage.replace(/<b>|<\/b>/g, '')); // Log sem HTML
+    // A notificação por Telegram foi removida a pedido.
+    // A renovação do token agora acontece silenciosamente, apenas registrando o aviso no log.
+    logger.warn(`Token Solplanet expirado ou inválido. Forçando renovação silenciosa devido ao erro: ${originalError.message}`);
 
     // Deleta o cache antigo e obtém um novo token
     try { await fs.unlink(AUTH_CACHE_FILE); } catch (e) { /* Ignora se o arquivo não existir */ }
