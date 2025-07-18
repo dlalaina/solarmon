@@ -133,6 +133,24 @@ CREATE TABLE `growatt_server_status` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `monthly_generation`
+--
+
+DROP TABLE IF EXISTS `monthly_generation`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `monthly_generation` (
+  `plant_name` varchar(100) NOT NULL,
+  `inverter_id` varchar(50) NOT NULL,
+  `year` smallint NOT NULL,
+  `month` tinyint NOT NULL,
+  `gen_kwh` decimal(12,2) DEFAULT NULL,
+  `last_updated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`plant_name`,`inverter_id`,`year`,`month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `plant_config`
 --
 
@@ -255,7 +273,7 @@ CREATE TABLE `solar_data` (
   KEY `idx_plant_name` (`plant_name`),
   KEY `idx_inverter_last_update` (`inverter_id`,`last_update_time` DESC),
   KEY `idx_last_update_time` (`last_update_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=18850 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=18994 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
