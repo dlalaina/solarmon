@@ -27,6 +27,9 @@ const loginMessage = document.getElementById('loginMessage');
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 
+// Mapa para armazenar instâncias ativas do Chart.js para poder destruí-las
+const activeCharts = new Map();
+
 // Helper para formatar data/hora
 const formatDateTime = (isoString) => {
     if (!isoString) return '';
@@ -162,6 +165,7 @@ async function fetchAndRenderPlantsSummary() {
         } else {
             summaryData.forEach(item => {
                 const row = plantsSummaryTableBody.insertRow();
+                row.classList.add('plants-summary-row'); // Classe para identificar e estilizar
                 row.insertCell().textContent = item.plant_name;
                 row.insertCell().textContent = item.inverter_id;
                 
@@ -186,6 +190,9 @@ async function fetchAndRenderPlantsSummary() {
                 const currentPowerPercentage = parseFloat(item.current_power_percentage);
                 // Exibe com o símbolo de porcentagem
                 currentPowerCell.textContent = !isNaN(currentPowerPercentage) ? `${currentPowerPercentage.toFixed(2)} %` : 'N/A';
+
+                // Adiciona o evento de clique para expandir/recolher o gráfico
+                row.addEventListener('click', () => toggleChartRow(row, item.plant_name, item.inverter_id));
             });
         }
     } catch (error) {
@@ -196,6 +203,155 @@ async function fetchAndRenderPlantsSummary() {
     } finally {
         loadingSummaryIndicator.classList.add('hidden');
     }
+}
+
+/**
+ * Expande ou recolhe a linha de detalhes com o gráfico de geração mensal.
+ * @param {HTMLTableRowElement} clickedRow - A linha da tabela que foi clicada.
+ * @param {string} plantName - O nome da planta.
+ * @param {string} inverterId - O ID do inversor.
+ */
+async function toggleChartRow(clickedRow, plantName, inverterId) {
+    // Verifica se já existe uma linha de detalhe após a linha clicada
+    const existingDetailRow = clickedRow.nextElementSibling;
+    if (existingDetailRow && existingDetailRow.classList.contains('chart-detail-row')) {
+        // Se existe, remove-a (recolhe) e destrói o gráfico associado
+        const chartId = existingDetailRow.dataset.chartId;
+        if (activeCharts.has(chartId)) {
+            activeCharts.get(chartId).destroy();
+            activeCharts.delete(chartId);
+        }
+        existingDetailRow.remove();
+        clickedRow.classList.remove('expanded');
+        return;
+    }
+
+    // Recolhe qualquer outra linha que esteja expandida
+    document.querySelectorAll('.chart-detail-row').forEach(row => {
+        const chartId = row.dataset.chartId;
+        if (activeCharts.has(chartId)) {
+            activeCharts.get(chartId).destroy();
+            activeCharts.delete(chartId);
+        }
+        row.remove();
+    });
+    document.querySelectorAll('.plants-summary-row.expanded').forEach(row => row.classList.remove('expanded'));
+
+    // Cria a nova linha de detalhe para o gráfico
+    const detailRow = plantsSummaryTableBody.insertRow(clickedRow.rowIndex);
+    const chartId = `chart-${plantName.replace(/\s/g, '-')}-${inverterId}`;
+    detailRow.classList.add('chart-detail-row');
+    detailRow.dataset.chartId = chartId;
+
+    const detailCell = detailRow.insertCell();
+    detailCell.colSpan = 6; // Abrange todas as colunas da tabela de resumo
+    detailCell.innerHTML = `
+        <div class="chart-container">
+            <div class="chart-header">
+                <button class="year-nav-btn" data-direction="-1">&lt;</button>
+                <span class="chart-year"></span>
+                <button class="year-nav-btn" data-direction="1">&gt;</button>
+            </div>
+            <div class="chart-canvas-wrapper">
+                <canvas id="${chartId}"></canvas>
+            </div>
+            <div class="chart-loading hidden">Carregando...</div>
+        </div>
+    `;
+
+    clickedRow.classList.add('expanded');
+
+    // Renderiza o gráfico para o ano atual
+    const currentYear = new Date().getFullYear();
+    await renderMonthlyChart(detailCell, plantName, inverterId, currentYear);
+}
+
+/**
+ * Busca os dados e renderiza o gráfico de geração mensal.
+ * @param {HTMLTableCellElement} containerCell - A célula da tabela onde o gráfico será renderizado.
+ * @param {string} plantName - O nome da planta.
+ * @param {string} inverterId - O ID do inversor.
+ * @param {number} year - O ano para buscar os dados.
+ */
+async function renderMonthlyChart(containerCell, plantName, inverterId, year) {
+    const chartContainer = containerCell.querySelector('.chart-container');
+    const loading = chartContainer.querySelector('.chart-loading');
+    const yearSpan = chartContainer.querySelector('.chart-year');
+    const canvas = chartContainer.querySelector('canvas');
+    const chartId = canvas.id;
+
+    loading.classList.remove('hidden');
+    yearSpan.textContent = year;
+
+    // Destrói a instância anterior do gráfico, se houver
+    if (activeCharts.has(chartId)) {
+        activeCharts.get(chartId).destroy();
+    }
+
+    try {
+        const response = await fetch(`/api/monthly-generation?plantName=${encodeURIComponent(plantName)}&inverterId=${encodeURIComponent(inverterId)}&year=${year}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        }
+        const monthlyData = await response.json();
+
+        const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const data = monthlyData.map(d => d.gen_kwh);
+
+        const chart = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: `Geração (kWh)`,
+                    data,
+                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Geração (kWh)', color: '#e0e0e0' },
+                        ticks: { color: '#e0e0e0' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    x: {
+                        ticks: { color: '#e0e0e0' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    title: { display: true, text: `Geração Mensal - ${plantName} / ${inverterId} - ${year}`, color: '#61dafb', font: { size: 16 } }
+                }
+            }
+        });
+        activeCharts.set(chartId, chart);
+
+    } catch (error) {
+        console.error(`Erro ao renderizar gráfico para ${plantName}/${inverterId} ano ${year}:`, error);
+        canvas.style.display = 'none';
+        loading.textContent = `Erro ao carregar dados: ${error.message}`;
+    } finally {
+        loading.classList.add('hidden');
+    }
+
+    // Configura os botões de navegação de ano
+    containerCell.querySelectorAll('.year-nav-btn').forEach(btn => {
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        newBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Impede que o clique no botão feche a linha
+            const newYear = year + parseInt(newBtn.dataset.direction, 10);
+            renderMonthlyChart(containerCell, plantName, inverterId, newYear);
+        });
+    });
 }
 
 // --- FUNÇÃO PARA BUSCAR E RENDERIZAR OS ALARMES ---

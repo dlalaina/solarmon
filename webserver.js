@@ -287,6 +287,49 @@ app.get('/api/plants-summary', async (req, res) => {
     }
 });
 
+// --- ENDPOINT: /api/monthly-generation ---
+app.get('/api/monthly-generation', async (req, res) => {
+    const { plantName, inverterId, year } = req.query;
+
+    if (!plantName || !inverterId || !year) {
+        return res.status(400).json({ error: 'Parâmetros plantName, inverterId e year são obrigatórios.' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const [rows] = await connection.execute(
+            `SELECT month, gen_kwh
+             FROM monthly_generation
+             WHERE plant_name = ? AND inverter_id = ? AND year = ?
+             ORDER BY month ASC`,
+            [plantName, inverterId, year]
+        );
+
+        // Cria um mapa para facilitar a consulta
+        const generationMap = new Map();
+        rows.forEach(row => {
+            generationMap.set(row.month, parseFloat(row.gen_kwh));
+        });
+
+        // Cria um array de 12 meses, preenchendo os dados onde existem
+        const monthlyData = [];
+        for (let i = 1; i <= 12; i++) {
+            monthlyData.push({
+                month: i,
+                gen_kwh: generationMap.get(i) || 0
+            });
+        }
+
+        res.json(monthlyData);
+    } catch (error) {
+        logger.error(`Erro ao buscar geração mensal para ${plantName}/${inverterId} no ano ${year}: ${error.message}`);
+        res.status(500).json({ error: 'Erro ao buscar dados de geração mensal.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 // --- ENDPOINTS PROTEGIDOS ---
 // Aplica o middleware authenticateToken a estas rotas
 app.put('/api/alarms/:id/observation', authenticateToken, async (req, res) => {
