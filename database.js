@@ -364,6 +364,47 @@ async function insertDataIntoMySQL(pool, data) {
             logger.info(`Registro ignorado (duplicado) para Planta: ${plantName}, Inversor: ${deviceId} (Update: ${updateTimeText})`);
         }
       }
+
+      // --- INÍCIO: Lógica para popular a tabela monthly_generation ---
+      for (const [deviceId, deviceData] of Object.entries(plantInfo.devices)) {
+        const d = deviceData;
+        const plantConfigKey = `${plantName}_${deviceId}`;
+        const currentPlantConfig = plantConfigsMap.get(plantConfigKey);
+
+        if (!currentPlantConfig) continue; // Pula se não houver configuração
+
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        let currentMonthGenKwh = null;
+
+        if (currentPlantConfig.apiType === 'Growatt') {
+            // Growatt fornece o total do mês diretamente (eMonth)
+            currentMonthGenKwh = d.deviceData?.eMonth != null ? parseFloat(d.deviceData.eMonth) : null;
+        } else if (currentPlantConfig.apiType === 'Solplanet') {
+            // Solplanet também fornece o total do mês (emonth)
+            currentMonthGenKwh = d.result?.emonth?.[0] != null ? parseFloat(d.result.emonth[0]) : null;
+        } else if (currentPlantConfig.apiType === 'Solarman') {
+            // Solarman não fornece o total do mês, então calculamos a partir dos dados diários em solar_data
+            const [rows] = await connection.execute(
+                `SELECT SUM(daily_gen) as total_monthly_gen
+                 FROM (
+                     SELECT MAX(gen_today) as daily_gen
+                     FROM solar_data
+                     WHERE inverter_id = ? AND YEAR(last_update_time) = ? AND MONTH(last_update_time) = ?
+                     GROUP BY DATE(last_update_time)
+                 ) as daily_generations`,
+                [deviceId, currentYear, currentMonth]
+            );
+            currentMonthGenKwh = rows[0]?.total_monthly_gen != null ? parseFloat(rows[0].total_monthly_gen) : 0;
+        }
+
+        if (currentMonthGenKwh !== null) {
+            const monthlySql = `INSERT INTO monthly_generation (plant_name, inverter_id, year, month, gen_kwh) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE gen_kwh = VALUES(gen_kwh);`;
+            await connection.execute(monthlySql, [plantName, deviceId, currentYear, currentMonth, currentMonthGenKwh]);
+        }
+      }
+      // --- FIM: Lógica para popular a tabela monthly_generation ---
     }
     await connection.commit();
   } catch (dbError) {
