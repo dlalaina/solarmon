@@ -3,19 +3,6 @@ const logger = require('./logger')('main');
 const moment = require('moment-timezone');
 
 /**
- * Safely parses a value that might be a number or a string (with '.' or ',').
- * @param {*} rawValue - The value to parse.
- * @returns {number|null} The parsed float, or null if invalid.
- */
-function safeParseFloat(rawValue) {
-    if (rawValue == null) return null; // Handles null and undefined
-    // Convert to string, replace comma with dot, then parse
-    const sanitizedValue = String(rawValue).replace(',', '.');
-    const number = parseFloat(sanitizedValue);
-    return isNaN(number) ? null : number;
-}
-
-/**
  * Mapeia os dados brutos da API Growatt para um formato padronizado.
  * @param {object} d - O objeto de dados do dispositivo Growatt.
  * @returns {{sourceData: object, lastUpdateTimeValue: string|null}}
@@ -114,52 +101,43 @@ function mapSolarmanData(d) {
 function mapSolplanetData(d) {
     const result = d.result || {};
     const sourceData = {
-        // These fields are strings in the API response
-        gen_today: safeParseFloat(result.etoday),
-        gen_total: safeParseFloat(result.etotal), // This is in MWh, will be converted to kWh later
-        output_power: safeParseFloat(result.pac), // This is in kW, will be converted to W later
-        nominal_power: safeParseFloat(result.maxoutputpower), // This is in kW, will be converted to W later
+        gen_today: result.etoday?.[0] ? parseFloat(result.etoday[0]) : null,
+        gen_total: result.etotal?.[0] ? parseFloat(result.etotal[0]) * 1000 : null, // Convert MWh to kWh
+        voltage_ac1: result.vac?.[0] ? parseFloat(result.vac[0]) : null,
+        voltage_ac2: result.vac?.[1] ? parseFloat(result.vac[1]) : null,
+        voltage_ac3: result.vac?.[2] ? parseFloat(result.vac[2]) : null,
+        nominal_power: result.maxoutputpower != null ? parseFloat(Array.isArray(result.maxoutputpower) ? result.maxoutputpower[0] : result.maxoutputpower) : null,
+        frequency_ac: result.fac?.[0] ? parseFloat(result.fac[0]) : null,
+        output_power: result.pac != null ? parseFloat(Array.isArray(result.pac) ? result.pac[0] : result.pac) : null,
+        status: result.status, // Será mapeado para -1, 1, etc., posteriormente
         device_model: result.devtypename || null,
-        status: result.status, // Will be mapped to a standard code later
-
-        // These fields are arrays of strings in the API response
-        voltage_ac1: safeParseFloat(result.vac?.[0]),
-        voltage_ac2: safeParseFloat(result.vac?.[1]),
-        voltage_ac3: safeParseFloat(result.vac?.[2]),
-        frequency_ac: safeParseFloat(result.fac?.[0]),
-        temperature2: safeParseFloat(result.temperature?.[0]),
+        temperature2: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
     };
     
-    // Dynamically map array fields for MPPTs and strings
+    // Mapeia dinamicamente os arrays ipv, vpv e str_cur
     for (let i = 1; i <= 16; i++) {
         const index = i - 1;
-        // ipv and vpv have a max of 8 columns in the DB
+        // ipv e vpv têm no máximo 8 colunas no banco
         if (i <= 8) {
-            if (result.ipv?.[index] != null) {
-                sourceData[`current_mppt${i}`] = safeParseFloat(result.ipv[index]);
+            if (result.ipv && result.ipv[index] != null) { // API ainda envia 'ipv'
+                sourceData[`current_mppt${i}`] = parseFloat(result.ipv[index]);
             }
-            if (result.vpv?.[index] != null) {
-                sourceData[`voltage_mppt${i}`] = safeParseFloat(result.vpv[index]);
+            if (result.vpv && result.vpv[index] != null) { // API ainda envia 'vpv'
+                sourceData[`voltage_mppt${i}`] = parseFloat(result.vpv[index]);
             }
         }
-        // str_cur has 16 elements
-        if (result.str_cur?.[index] != null) {
-            sourceData[`current_string${i}`] = safeParseFloat(result.str_cur[index]);
+        // str_cur tem 16 elementos no exemplo, API envia 'str_cur'
+        if (result.str_cur && result.str_cur[index] != null) {
+            sourceData[`current_string${i}`] = parseFloat(result.str_cur[index]);
         }
     }
 
-    // Unit conversions for consistency
-    if (sourceData.gen_total !== null) {
-        sourceData.gen_total *= 1000; // Convert MWh to kWh
-    }
+    // A API da Solplanet retorna 'pac' em kW, então precisamos converter para W para manter a consistência com outras APIs.
     if (sourceData.output_power !== null) {
         sourceData.output_power *= 1000; // Convert kW to W
     }
-    if (sourceData.nominal_power !== null) {
-        sourceData.nominal_power *= 1000; // Convert kW to W
-    }
 
-    const lastUpdateTimeValue = result.ludt ? moment(result.ludt).format('YYYY-MM-DD HH:mm:ss') : null;
+    const lastUpdateTimeValue = result.ludt?.[0] ? moment(result.ludt[0]).format('YYYY-MM-DD HH:mm:ss') : null;
 
     return { sourceData, lastUpdateTimeValue };
 }
@@ -405,18 +383,7 @@ async function insertDataIntoMySQL(pool, data) {
             currentMonthGenKwh = d.deviceData?.eMonth != null ? parseFloat(d.deviceData.eMonth) : null;
         } else if (currentPlantConfig.apiType === 'Solplanet') {
             // Solplanet também fornece o total do mês (emonth)
-            // O valor vem como string (ex: "4.74") e representa MWh.
-            if (d.result?.emonth != null) {
-                const emonthMwh = safeParseFloat(d.result.emonth);
-                if (!isNaN(emonthMwh)) {
-                    currentMonthGenKwh = emonthMwh * 1000; // Converte MWh para kWh
-                } else {
-                    logger.warn(`Valor de 'emonth' da Solplanet inválido ou não numérico: "${d.result.emonth}"`);
-                    currentMonthGenKwh = null;
-                }
-            } else {
-                currentMonthGenKwh = null;
-            }
+            currentMonthGenKwh = d.result?.emonth?.[0] != null ? parseFloat(d.result.emonth[0]) : null;
         } else if (currentPlantConfig.apiType === 'Solarman') {
             // Solarman não fornece o total do mês, então calculamos a partir dos dados diários em solar_data
             const [rows] = await connection.execute(
