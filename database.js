@@ -276,6 +276,8 @@ async function insertDataIntoMySQL(pool, data) {
               if (currentPlantConfig.apiType === 'Solarman' && typeof sourceData.status === 'string') {
                   const lowerCaseStatus = sourceData.status.toLowerCase();
                   if (lowerCaseStatus === 'grid connected') return 1; // On-line, padronizado com Growatt (1)
+                  // O status '4' indica uma falha (ex: fase AC fora). Mapeamos para -1.
+                  if (lowerCaseStatus === '4') return -1;
                   if (lowerCaseStatus === 'offline') return -1; // Off-line, padronizado com Growatt
                   return null; // Retorna null para outros status desconhecidos do Solarman
               }
