@@ -3,6 +3,18 @@ const logger = require('./logger')('main');
 const moment = require('moment-timezone');
 
 /**
+ * Safely parses a string or number to a float, handling commas and null/undefined values.
+ * @param {*} value - The value to parse.
+ * @returns {number|null} The parsed float, or null if parsing is not possible.
+ */
+function safeParseFloat(value) {
+    if (value == null) return null; // Catches both null and undefined
+    const stringValue = String(value).replace(',', '.');
+    const number = parseFloat(stringValue);
+    return isNaN(number) ? null : number;
+}
+
+/**
  * Mapeia os dados brutos da API Growatt para um formato padronizado.
  * @param {object} d - O objeto de dados do dispositivo Growatt.
  * @returns {{sourceData: object, lastUpdateTimeValue: string|null}}
@@ -101,17 +113,17 @@ function mapSolarmanData(d) {
 function mapSolplanetData(d) {
     const result = d.result || {};
     const sourceData = {
-        gen_today: result.etoday?.[0] ? parseFloat(result.etoday[0]) : null,
-        gen_total: result.etotal?.[0] ? parseFloat(result.etotal[0]) * 1000 : null, // Convert MWh to kWh
-        voltage_ac1: result.vac?.[0] ? parseFloat(result.vac[0]) : null,
-        voltage_ac2: result.vac?.[1] ? parseFloat(result.vac[1]) : null,
-        voltage_ac3: result.vac?.[2] ? parseFloat(result.vac[2]) : null,
-        nominal_power: result.maxoutputpower != null ? parseFloat(Array.isArray(result.maxoutputpower) ? result.maxoutputpower[0] : result.maxoutputpower) : null,
-        frequency_ac: result.fac?.[0] ? parseFloat(result.fac[0]) : null,
-        output_power: result.pac != null ? parseFloat(Array.isArray(result.pac) ? result.pac[0] : result.pac) : null,
+        gen_today: safeParseFloat(result.etoday?.[0]),
+        gen_total: safeParseFloat(result.etotal?.[0]) * 1000, // Convert MWh to kWh
+        voltage_ac1: safeParseFloat(result.vac?.[0]),
+        voltage_ac2: safeParseFloat(result.vac?.[1]),
+        voltage_ac3: safeParseFloat(result.vac?.[2]),
+        nominal_power: safeParseFloat(Array.isArray(result.maxoutputpower) ? result.maxoutputpower[0] : result.maxoutputpower), // Already in W
+        frequency_ac: safeParseFloat(result.fac?.[0]),
+        output_power: safeParseFloat(Array.isArray(result.pac) ? result.pac[0] : result.pac) * 1000, // Convert kW to W
         status: result.status, // Será mapeado para -1, 1, etc., posteriormente
         device_model: result.devtypename || null,
-        temperature2: result.temperature?.[0] ? parseFloat(result.temperature[0]) : null,
+        temperature2: safeParseFloat(result.temperature?.[0]),
     };
     
     // Mapeia dinamicamente os arrays ipv, vpv e str_cur
@@ -120,21 +132,16 @@ function mapSolplanetData(d) {
         // ipv e vpv têm no máximo 8 colunas no banco
         if (i <= 8) {
             if (result.ipv && result.ipv[index] != null) { // API ainda envia 'ipv'
-                sourceData[`current_mppt${i}`] = parseFloat(result.ipv[index]);
+                sourceData[`current_mppt${i}`] = safeParseFloat(result.ipv[index]);
             }
             if (result.vpv && result.vpv[index] != null) { // API ainda envia 'vpv'
-                sourceData[`voltage_mppt${i}`] = parseFloat(result.vpv[index]);
+                sourceData[`voltage_mppt${i}`] = safeParseFloat(result.vpv[index]);
             }
         }
         // str_cur tem 16 elementos no exemplo, API envia 'str_cur'
         if (result.str_cur && result.str_cur[index] != null) {
-            sourceData[`current_string${i}`] = parseFloat(result.str_cur[index]);
+            sourceData[`current_string${i}`] = safeParseFloat(result.str_cur[index]);
         }
-    }
-
-    // A API da Solplanet retorna 'pac' em kW, então precisamos converter para W para manter a consistência com outras APIs.
-    if (sourceData.output_power !== null) {
-        sourceData.output_power *= 1000; // Convert kW to W
     }
 
     const lastUpdateTimeValue = result.ludt?.[0] ? moment(result.ludt[0]).format('YYYY-MM-DD HH:mm:ss') : null;
@@ -188,6 +195,13 @@ async function insertDataIntoMySQL(pool, data) {
         // Retrieve plant configuration for the current device
         const plantConfigKey = `${plantName}_${deviceId}`;
         const currentPlantConfig = plantConfigsMap.get(plantConfigKey);
+
+        // Pula a inserção para inversores Solplanet que estão offline/aguardando.
+        // A condição agora verifica status E state.
+        if (currentPlantConfig && currentPlantConfig.apiType === 'Solplanet' && d.result?.status === 0 && d.result?.state === 'off-line') {
+            logger.info(`Ignorando inversor Solplanet em espera: ${plantName} - ${deviceId} (status: 0, state: off-line)`);
+            continue; // Pula para o próximo inversor
+        }
 
         if (!currentPlantConfig) {
           logger.warn(`Configuração da planta não encontrada para Inversor: ${deviceId} na Planta: ${plantName}. Ignorando inserção de dados PV.`);
@@ -266,10 +280,13 @@ async function insertDataIntoMySQL(pool, data) {
                   return null; // Retorna null para outros status desconhecidos do Solarman
               }
               if (currentPlantConfig.apiType === 'Solplanet') {
-                  if (sourceData.status === 0) return 0;  // CORREÇÃO: Mapeia para 0 (Aguardando), não -1 (Offline)
-                  if (sourceData.status === 1) return 1;  // Online (suposição)
-                  // Adicionar outros mapeamentos de status da Solplanet aqui se necessário
-                  return null;
+                  // A lógica agora depende do campo 'state' para desambiguar o 'status: 0'
+                  switch (d.result?.state) {
+                      case 'normal': return 1;   // Online
+                      case 'off-line': return 0; // Aguardando
+                      case 'fault': return -1;   // Falha
+                      default: return null;      // Status desconhecido
+                  }
               }
               // Para Growatt (já é numérico) ou se sourceData.status não for string para Solarman
               return sourceData.status != null ? parseInt(sourceData.status) : null;
@@ -382,8 +399,10 @@ async function insertDataIntoMySQL(pool, data) {
             // Growatt fornece o total do mês diretamente (eMonth)
             currentMonthGenKwh = d.deviceData?.eMonth != null ? parseFloat(d.deviceData.eMonth) : null;
         } else if (currentPlantConfig.apiType === 'Solplanet') {
-            // Solplanet também fornece o total do mês (emonth)
-            currentMonthGenKwh = d.result?.emonth?.[0] != null ? parseFloat(d.result.emonth[0]) : null;
+            // Solplanet fornece o total do mês (emonth) em MWh.
+            // A API pode retornar o valor com vírgula (ex: "5,208"). A conversão abaixo trata ambos os casos.
+            const emonthValue = d.result?.emonth; // CORREÇÃO: Acessa a string diretamente, sem o [0]
+            currentMonthGenKwh = emonthValue != null ? safeParseFloat(emonthValue) * 1000 : null; // Convert MWh to kWh
         } else if (currentPlantConfig.apiType === 'Solarman') {
             // Solarman não fornece o total do mês, então calculamos a partir dos dados diários em solar_data
             const [rows] = await connection.execute(
