@@ -2,6 +2,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken'); // Para geração e verificação de tokens JWT
 const { sendTelegramMessage, init: initTelegramNotifier } = require('./telegramNotifier');
+const cookieParser = require('cookie-parser'); // Adicionado para parsear cookies
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
@@ -58,6 +59,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json()); // Middleware para parsear JSON no corpo da requisição
+app.use(cookieParser()); // Middleware para habilitar o req.cookies
 
 // --- MIDDLEWARE DE AUTENTICAÇÃO ---
 function authenticateToken(req, res, next) {
