@@ -166,8 +166,6 @@ app.get('/api/plants-summary', async (req, res) => {
                 sd.plant_name,
                 sd.inverter_id,
                 sd.gen_today,
-                sd.nominal_power,
-                sd.output_power,
                 COALESCE(sd.pid_fault_code, 0) AS pid_fault_code,
                 COALESCE(sd.fault_value, 0) AS fault_value,
                 COALESCE(sd.fault_type, 0) AS fault_type
@@ -186,6 +184,28 @@ app.get('/api/plants-summary', async (req, res) => {
             WHERE cleared_at IS NULL
         `);
 
+        // 3. (NOVO) Buscar dados de geração mensal para o mês atual e o anterior
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+
+        let lastMonthYear = currentYear;
+        let lastMonth = currentMonth - 1;
+        if (lastMonth === 0) {
+            lastMonth = 12;
+            lastMonthYear = currentYear - 1;
+        }
+
+        const [monthlyGenRows] = await connection.execute(`
+            SELECT
+                inverter_id,
+                SUM(CASE WHEN year = ? AND month = ? THEN gen_kwh ELSE 0 END) as current_month_gen,
+                SUM(CASE WHEN year = ? AND month = ? THEN gen_kwh ELSE 0 END) as last_month_gen
+            FROM monthly_generation
+            WHERE (year = ? AND month = ?) OR (year = ? AND month = ?)
+            GROUP BY inverter_id
+        `, [currentYear, currentMonth, lastMonthYear, lastMonth, currentYear, currentMonth, lastMonthYear, lastMonth]);
+
         // Estrutura para consolidar dados
         const summary = {}; // Chave: inverter_id, Valor: { plant_name, gen_today, status, alarm_types_active, ... }
 
@@ -194,9 +214,9 @@ app.get('/api/plants-summary', async (req, res) => {
             summary[pc.inverter_id] = {
                 plant_name: pc.plant_name,
                 inverter_id: pc.inverter_id,
-                gen_today: null, // Padrão null, será preenchido por solar_data se disponível
-                nominal_power: null,
-                output_power: null,
+                gen_today: null,
+                current_month_gen: 0, // Padrão 0
+                last_month_gen: 0,    // Padrão 0
                 status: 'green', // Status padrão
                 alarm_types_active: [],
                 pid_fault_code: 0, // Padrão 0
@@ -205,12 +225,19 @@ app.get('/api/plants-summary', async (req, res) => {
             };
         });
 
+        // Mapear geração mensal para consulta rápida
+        const monthlyGenMap = new Map();
+        monthlyGenRows.forEach(row => {
+            monthlyGenMap.set(row.inverter_id, {
+                current_month_gen: parseFloat(row.current_month_gen),
+                last_month_gen: parseFloat(row.last_month_gen)
+            });
+        });
+
         // Sobrepor com os dados mais recentes de solar_data (para inversores que têm dados)
         solarDataRows.forEach(sd => {
             if (summary[sd.inverter_id]) { // Garante que é um inversor configurado
                 summary[sd.inverter_id].gen_today = sd.gen_today;
-                summary[sd.inverter_id].nominal_power = sd.nominal_power;
-                summary[sd.inverter_id].output_power = sd.output_power;
                 summary[sd.inverter_id].pid_fault_code = sd.pid_fault_code;
                 summary[sd.inverter_id].fault_value = sd.fault_value;
                 summary[sd.inverter_id].fault_type = sd.fault_type;
@@ -225,23 +252,11 @@ app.get('/api/plants-summary', async (req, res) => {
                 item.status = 'red';
             }
 
-            // Calcula a porcentagem da potência atual
-            const nominal = parseFloat(item.nominal_power);
-            const output = parseFloat(item.output_power);
-            let percentage = 0;
-
-            if (nominal > 0 && output >= 0) {
-                percentage = (output / nominal) * 100;
-                if (percentage > 100) {
-                    percentage = 100;
-                }
-            }
-            item.current_power_percentage = percentage;
-
-            // Converte a potência nominal de W para kW para exibição no frontend
-            // Isso é feito APÓS o cálculo da porcentagem para manter a proporção correta (W/W)
-            if (item.nominal_power !== null) {
-                item.nominal_power = parseFloat(item.nominal_power) / 1000;
+            // Adicionar dados de geração mensal ao item do resumo
+            const genData = monthlyGenMap.get(item.inverter_id);
+            if (genData) {
+                item.current_month_gen = genData.current_month_gen;
+                item.last_month_gen = genData.last_month_gen;
             }
         });
 

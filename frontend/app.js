@@ -178,18 +178,17 @@ async function fetchAndRenderPlantsSummary() {
                 const genTodayCell = row.insertCell();
                 genTodayCell.classList.add('text-center');
                 const genTodayValue = parseFloat(item.gen_today);
-                genTodayCell.textContent = `${!isNaN(genTodayValue) ? genTodayValue.toFixed(2) : 'N/A'}`;
+                genTodayCell.textContent = `${!isNaN(genTodayValue) ? genTodayValue.toFixed(2) + ' kWh' : 'N/A'}`;
 
-                const nominalPowerCell = row.insertCell();
-                nominalPowerCell.classList.add('text-center');
-                const nominalPowerValue = parseFloat(item.nominal_power);
-                nominalPowerCell.textContent = !isNaN(nominalPowerValue) ? nominalPowerValue.toFixed(0) : 'N/A';
+                const currentMonthGenCell = row.insertCell();
+                currentMonthGenCell.classList.add('text-center');
+                const currentMonthGenValue = parseFloat(item.current_month_gen);
+                currentMonthGenCell.textContent = `${!isNaN(currentMonthGenValue) ? currentMonthGenValue.toFixed(0) : '0'} kWh`;
 
-                const currentPowerCell = row.insertCell();
-                currentPowerCell.classList.add('text-center');
-                const currentPowerPercentage = parseFloat(item.current_power_percentage);
-                // Exibe com o símbolo de porcentagem
-                currentPowerCell.textContent = !isNaN(currentPowerPercentage) ? `${currentPowerPercentage.toFixed(2)} %` : 'N/A';
+                const lastMonthGenCell = row.insertCell();
+                lastMonthGenCell.classList.add('text-center');
+                const lastMonthGenValue = parseFloat(item.last_month_gen);
+                lastMonthGenCell.textContent = `${!isNaN(lastMonthGenValue) ? lastMonthGenValue.toFixed(0) : '0'} kWh`;
 
                 // Adiciona o evento de clique para expandir/recolher o gráfico
                 row.addEventListener('click', () => toggleChartRow(row, item.plant_name, item.inverter_id));
