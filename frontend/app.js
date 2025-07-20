@@ -609,8 +609,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setActiveButton(showActiveBtn);
     fetchAndRenderPlantsSummary(); // Carrega o resumo primeiro
     updateAuthUI(); // Isso irá chamar fetchAlarms('active') UMA VEZ para a tabela principal
-    // NOVO CÓDIGO PARA REFRESH AUTOMÁTICO
-    setTimeout(() => {
-        location.reload();
-    }, 180 * 1000);
+    // NOVO CÓDIGO PARA REFRESH AUTOMÁTICO (sem recarregar a página)
+    // Atualiza os dados a cada 3 minutos.
+    setInterval(() => {
+        console.log('Atualizando dados do dashboard automaticamente...');
+        fetchAndRenderPlantsSummary();
+
+        // Verifica qual aba de alarmes está ativa para atualizar corretamente
+        const currentView = showActiveBtn.classList.contains('active') ? 'active' : 'history';
+        fetchAlarms(currentView);
+    }, 180 * 1000); // 180 segundos = 3 minutos
 });

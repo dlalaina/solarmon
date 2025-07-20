@@ -276,7 +276,7 @@ app.get('/api/plants-summary', async (req, res) => {
                 }
 
                 // Regra 1b: Vermelho para GROWATT-EMAIL-EVENT
-                if (alarm.alarm_type === 'GROWATT-EMAIL-EVENT') {
+                if (alarm.alarm_type === 'GROWATT-EMAIL-EVENT' || alarm.alarm_type === 'SOLARMAN-EMAIL-EVENT' || alarm.alarm_type === 'INVERTER-OFFLINE' ) {
                     item.status = 'red';
                 }
                 // Regra 2: Amarelo para STRING-DOWN ou HALF-STRING-WORKING
