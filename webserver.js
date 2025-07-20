@@ -111,6 +111,16 @@ app.post('/api/logout', (req, res) => {
     res.status(200).json({ message: 'Logout bem-sucedido.' });
 });
 
+// --- Rota de Verificação de Status da Sessão (NOVA) ---
+// Esta rota é protegida pelo middleware. Se o token for válido, ela retorna sucesso.
+// Se o token for inválido/expirado, o middleware retornará 401/403.
+// O frontend usará isso para verificar proativamente se a sessão ainda está ativa.
+app.get('/api/auth/status', authenticateToken, (req, res) => {
+    // Se o middleware authenticateToken passou, o usuário está autenticado.
+    // Retornamos o nome de usuário do payload do token.
+    res.json({ authenticated: true, username: req.user.name });
+});
+
 // --- Rotas da API existentes (não protegidas ainda) ---
 app.get('/api/alarms/active', async (req, res) => {
     let connection;

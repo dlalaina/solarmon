@@ -604,18 +604,46 @@ loginForm.addEventListener('submit', handleLogin);
 logoutButton.addEventListener('click', handleLogout);
 
 
+/**
+ * Verifica proativamente o status da sessão do usuário.
+ * Se a sessão expirou, desloga o usuário, avisando-o caso
+ * esteja no meio da edição de uma observação para evitar perda de dados.
+ */
+async function checkSessionStatus() {
+    // Se o usuário já não está logado no frontend, não há o que fazer.
+    if (!isLoggedIn()) return;
+
+    try {
+        const response = await fetch('/api/auth/status');
+
+        // Se a resposta for 401 ou 403, a sessão no servidor expirou.
+        if (response.status === 401 || response.status === 403) {
+            console.warn('Sessão expirada detectada pelo refresh automático.');
+
+            // VERIFICAÇÃO CRÍTICA: O usuário está editando uma observação?
+            const isEditing = document.querySelector('.observation-textarea');
+            if (isEditing) {
+                alert('Sua sessão expirou! Por favor, copie o texto da sua observação antes de clicar em OK. Você precisará fazer login novamente.');
+            }
+
+            handleLogout(); // Desloga o usuário da interface
+        }
+    } catch (error) {
+        // Erro de rede não significa necessariamente que a sessão expirou,
+        // então apenas logamos o erro sem deslogar o usuário.
+        console.error('Erro de rede ao verificar o status da sessão:', error);
+    }
+}
+
 // Carrega dados iniciais ao carregar a página
 document.addEventListener('DOMContentLoaded', () => {
     setActiveButton(showActiveBtn);
     fetchAndRenderPlantsSummary(); // Carrega o resumo primeiro
     updateAuthUI(); // Isso irá chamar fetchAlarms('active') UMA VEZ para a tabela principal
-    // NOVO CÓDIGO PARA REFRESH AUTOMÁTICO (sem recarregar a página)
-    // Atualiza os dados a cada 3 minutos.
     setInterval(() => {
         console.log('Atualizando dados do dashboard automaticamente...');
+        checkSessionStatus(); // Primeiro, verifica se a sessão ainda é válida
         fetchAndRenderPlantsSummary();
-
-        // Verifica qual aba de alarmes está ativa para atualizar corretamente
         const currentView = showActiveBtn.classList.contains('active') ? 'active' : 'history';
         fetchAlarms(currentView);
     }, 180 * 1000); // 180 segundos = 3 minutos
