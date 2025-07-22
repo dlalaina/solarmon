@@ -273,7 +273,7 @@ CREATE TABLE `solar_data` (
   KEY `idx_plant_name` (`plant_name`),
   KEY `idx_inverter_last_update` (`inverter_id`,`last_update_time` DESC),
   KEY `idx_last_update_time` (`last_update_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=28785 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=28917 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
