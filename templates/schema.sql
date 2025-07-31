@@ -47,7 +47,7 @@ CREATE TABLE `alarms` (
   `cleared_by` varchar(50) DEFAULT NULL,
   `observation` text,
   PRIMARY KEY (`alarm_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=77 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=78 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -273,7 +273,7 @@ CREATE TABLE `solar_data` (
   KEY `idx_plant_name` (`plant_name`),
   KEY `idx_inverter_last_update` (`inverter_id`,`last_update_time` DESC),
   KEY `idx_last_update_time` (`last_update_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=59252 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=59395 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
