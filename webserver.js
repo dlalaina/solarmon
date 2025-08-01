@@ -172,17 +172,26 @@ app.get('/api/plants-summary', async (req, res) => {
             SELECT DISTINCT plant_name, inverter_id FROM plant_config
         `);
 
-        // 1. Buscar os dados mais recentes de solar_data para cada inversor (apenas para aqueles que têm dados)
+        // 1. Buscar os dados mais recentes (para códigos de falha) e a geração máxima de HOJE.
         const [solarDataRows] = await connection.execute(`
             SELECT
                 sd.plant_name,
                 sd.inverter_id,
-                sd.gen_today,
+                COALESCE(today_gen.max_gen_today, 0) AS gen_today,
                 COALESCE(sd.pid_fault_code, 0) AS pid_fault_code,
                 COALESCE(sd.fault_value, 0) AS fault_value,
                 COALESCE(sd.fault_type, 0) AS fault_type
             FROM solar_data sd
             INNER JOIN (
+                -- Subquery para obter a geração máxima de hoje para cada inversor
+                SELECT inverter_id, MAX(gen_today) AS max_gen_today
+                FROM solar_data
+                WHERE DATE(last_update_time) = CURDATE()
+                GROUP BY inverter_id
+            ) AS today_gen ON sd.inverter_id = today_gen.inverter_id
+            INNER JOIN (
+                -- Subquery para encontrar o registro mais recente de cada inversor
+                -- (usado para obter os códigos de falha mais atuais)
                 SELECT inverter_id, MAX(last_update_time) as max_update_time
                 FROM solar_data
                 GROUP BY inverter_id
