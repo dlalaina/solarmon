@@ -382,7 +382,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                     }
                 }
             }
-        
+
             // --- Lógica de Detecção para HALF-STRING-WORKING (Growatt, 2P etc.) ---
             let shouldCheckThisStringForHalfWorking = false;
             switch (stringGroupingType) {
@@ -469,7 +469,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
  * @param {Date|null} growattGracePeriodUntil - Timestamp de quando o período de carência da Growatt termina.
  */
 async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, growattGracePeriodUntil) {
-    const [inverterOfflineAlarms] = await connection.execute(`
+    const [potentialOfflineInverters] = await connection.execute(`
         SELECT
             pc.plant_name,
             pc.inverter_id,
@@ -494,32 +494,111 @@ async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillAct
             (pc.api_type IN ('Solarman', 'Solplanet') AND sd.status = -1);
     `);
 
-    const filteredInverterOfflineAlarms = [];
     const now = new Date();
 
-    for (const detection of inverterOfflineAlarms) {
+    for (const detection of potentialOfflineInverters) {
+        const { plant_name, inverter_id, owner_chat_id, api_type } = detection;
+
+        // Pular análise de alarmes de Inversor Offline para Growatt durante o período de carência
         if (detection.api_type === 'Growatt' && growattGracePeriodUntil && now < growattGracePeriodUntil) {
             logger.info(`INVERSOR OFFLINE (Growatt) ignorado durante período de carência para Planta: ${detection.plant_name}, Inversor: ${detection.inverter_id}. Carência termina em: ${growattGracePeriodUntil.toLocaleString()}.`);
-            
-            // **CORREÇÃO 2: Manter o alarme existente como ativo para não ser limpo**
+
+            // Manter o alarme 'INVERTER-OFFLINE' existente como ativo para não ser limpo
             const alarmKey = `${detection.plant_name}_${detection.inverter_id}_INVERTER-OFFLINE_Inversor Offline`;
             stillActiveDetectedKeys.add(alarmKey);
+
+            // Manter o alarme 'No AC Connection' que foi transformado em 'INVERTER-OFFLINE' como ativo
+            const updatedAcAlarmKey = `${detection.plant_name}_${detection.inverter_id}_INVERTER-OFFLINE_No AC Connection`;
+            stillActiveDetectedKeys.add(updatedAcAlarmKey);
+            continue; // Pula para a próxima detecção
+        }
+
+        const newAlarmType = 'INVERTER-OFFLINE';
+
+        // --- NOVA REGRA: Verificar se existe QUALQUER alarme 'GROWATT-EMAIL-EVENT' para atualizar ---
+        let alarmToUpdate = null;
+        let originalAlarmKey = null;
+
+        for (const [key, alarm] of activeAlarmsMap.entries()) {
+            if (
+                alarm.plant_name === plant_name &&
+                alarm.inverter_id === inverter_id &&
+                alarm.alarm_type === 'GROWATT-EMAIL-EVENT'
+            ) {
+                alarmToUpdate = alarm;
+                originalAlarmKey = key;
+                break; // Encontrou o primeiro, para a busca.
+            }
+        }
+
+        if (alarmToUpdate) {
+            // Se encontrou, atualiza o tipo do alarme para INVERTER-OFFLINE
+            logger.info(`Alarme '${alarmToUpdate.alarm_type}' (ID: ${alarmToUpdate.alarm_id}, Detalhes: ${alarmToUpdate.problem_details}) encontrado para ${plant_name} - ${inverter_id}. Atualizando para ${newAlarmType}.`);
+
+            await connection.execute(
+                `UPDATE alarms SET alarm_type = ? WHERE alarm_id = ?`,
+                [newAlarmType, alarmToUpdate.alarm_id]
+            );
+
+            // **RESOLVENDO O PROBLEMA 'stillActive'**
+            // A identidade do alarme mudou. A nova chave reflete o novo tipo, mas mantém os detalhes originais.
+            const updatedAlarmKey = `${plant_name}_${inverter_id}_${newAlarmType}_${alarmToUpdate.problem_details}`;
+            stillActiveDetectedKeys.add(updatedAlarmKey);
+
+            // Atualiza o mapa em memória para consistência dentro desta execução
+            activeAlarmsMap.delete(originalAlarmKey);
+            alarmToUpdate.alarm_type = newAlarmType;
+            activeAlarmsMap.set(updatedAlarmKey, alarmToUpdate);
+
         } else {
-            filteredInverterOfflineAlarms.push(detection);
+            // --- CORREÇÃO: Verificar se já existe um alarme INVERTER-OFFLINE com QUALQUER problem_details ---
+            let existingOfflineAlarm = null;
+            let existingOfflineAlarmKey = null;
+
+            for (const [key, alarm] of activeAlarmsMap.entries()) {
+                if (
+                    alarm.plant_name === plant_name &&
+                    alarm.inverter_id === inverter_id &&
+                    alarm.alarm_type === 'INVERTER-OFFLINE'
+                ) {
+                    existingOfflineAlarm = alarm;
+                    existingOfflineAlarmKey = key;
+                    break;
+                }
+            }
+
+            if (existingOfflineAlarm) {
+                // Se já existe um alarme INVERTER-OFFLINE (pode ter vindo de um update anterior),
+                // apenas o marcamos como "ainda ativo" para não ser limpo.
+                stillActiveDetectedKeys.add(existingOfflineAlarmKey);
+                logger.info(`Mantendo alarme INVERTER-OFFLINE existente (ID: ${existingOfflineAlarm.alarm_id}, Detalhes: ${existingOfflineAlarm.problem_details}) para ${plant_name} - ${inverter_id}.`);
+            } else {
+                // Se não encontrou NENHUM alarme INVERTER-OFFLINE, cria um novo com detalhes padrão.
+                const problemDetails = 'Inversor Offline';
+                const alarmKey = `${plant_name}_${inverter_id}_${newAlarmType}_${problemDetails}`;
+
+                // O if aqui é uma segurança, mas teoricamente não deveria haver um alarme com esta chave se não foi encontrado acima.
+                if (!activeAlarmsMap.has(alarmKey)) {
+                    const message = 'Inversor está offline ou sem dados recentes (ou status -1).';
+                    const alarmSeverity = 'Critical';
+                    await connection.execute(
+                        `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
+                         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                        [plant_name, inverter_id, newAlarmType, alarmSeverity, problemDetails, message]
+                    );
+                    logger.info(`NOVO ALARME: ${newAlarmType} para Planta: ${plant_name}, Inversor: ${inverter_id} (${problemDetails})`);
+                    await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: ${newAlarmType.replace(/-/g, ' ')}</b> 🚨\nPlanta: <b>${plant_name}</b>\nInversor: <b>${inverter_id}</b>\nDetalhes: ${problemDetails}\n<i>${message}</i>`);
+                    if (owner_chat_id && owner_chat_id !== adminChatId) {
+                        const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plant_name}</b> está com um alerta:\nInversor: <b>${inverter_id}</b>\nDetalhes: ${problemDetails}\n<i>${message}</i>`;
+                        await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, owner_chat_id);
+                        logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plant_name}.`);
+                    }
+                }
+                // Marca o alarme (novo ou já existente com 'Inversor Offline') como ativo.
+                stillActiveDetectedKeys.add(alarmKey);
+            }
         }
     }
-
-    await processDetections(
-        filteredInverterOfflineAlarms,
-        'INVERTER-OFFLINE',
-        'Inversor Offline',
-        'Critical',
-        'Inversor está offline ou sem dados recentes (ou status -1).',
-        connection,
-        activeAlarmsMap,
-        stillActiveDetectedKeys,
-        adminChatId
-    );
 }
 
 /**
@@ -618,39 +697,6 @@ async function persistConsecutiveCounts(consecutiveCountsMap, connection) {
                 [finalPlantName, finalInverterId, finalAlarmType, finalProblemDetails]
             );
         }
-    }
-}
-
-/**
- * Handles inserting new alarms into the database and marking them as still active.
- * @param {Array<Object>} detections - Array of detected alarm objects.
- * @param {string} alarmType - The type of the alarm.
- * @param {string} problemDetails - A short description.
- * @param {string} alarmSeverity - The severity level.
- * @param {string} message - A detailed message.
- * @param {mysql.Connection} connection - The MySQL database connection.
- * @param {Map} activeAlarmsMap - Map of currently active alarms.
- * @param {Set} stillActiveDetectedKeys - Set to track alarms still active.
- * @param {string} adminChatId - O ID do chat do administrador para deduplicação de notificações de proprietários.
- */
-async function processDetections(detections, alarmType, problemDetails, alarmSeverity, message, connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId) {
-    for (const detection of detections) {
-        const key = `${detection.plant_name}_${detection.inverter_id}_${alarmType}_${problemDetails || ''}`;
-        if (!activeAlarmsMap.has(key)) {
-            await connection.execute(
-                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, alarm_severity, problem_details, message, triggered_at)
-                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                [detection.plant_name, detection.inverter_id, alarmType, alarmSeverity, problemDetails || '', message]
-            );
-            logger.info(`NOVO ALARME: ${alarmType} para Planta: ${detection.plant_name}, Inversor: ${detection.inverter_id} (${problemDetails || ''})`);
-            await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🚨\nPlanta: <b>${detection.plant_name}</b>\nInversor: <b>${detection.inverter_id}</b>\nDetalhes: ${problemDetails || 'N/A'}\n<i>${message}</i>`);
-            if (detection.owner_chat_id && detection.owner_chat_id !== adminChatId) {
-                const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${detection.plant_name}</b> está com um alerta:\nInversor: <b>${detection.inverter_id}</b>\nDetalhes: ${problemDetails || 'N/A'}\n<i>${message}</i>`;
-                await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, detection.owner_chat_id);
-                logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${detection.plant_name}.`);
-            }
-        }
-        stillActiveDetectedKeys.add(key); // Ensure alarm is in the set
     }
 }
 

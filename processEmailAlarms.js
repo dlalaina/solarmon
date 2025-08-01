@@ -6,12 +6,16 @@ const telegramNotifier = require('./telegramNotifier');
 const emailProcessor = require('./emailProcessor');
 const diagnosticLogger = require('./diagnosticLogger');
 
+// Define um timeout global para o processamento de e-mails para evitar que o script principal trave.
+const EMAIL_PROCESSING_TIMEOUT_MS = 60000; // 60 segundos
+
 /**
  * Processa e-mails de alerta da Growatt e Solarman.
  * @param {mysql.Pool} pool - O pool de conexões MySQL já inicializado.
  * @param {object} credentials - O objeto de credenciais carregado.
  */
 async function processAllEmails(pool, credentials) {
+    logger.info(`Iniciando processamento de todos os e-mails em PARALELO com um timeout de ${EMAIL_PROCESSING_TIMEOUT_MS / 1000}s por provedor.`);
     const adminChatId = credentials.telegram.chatId;
 
     // imapConfig precisa ser definido aqui para ter acesso às credenciais.
@@ -22,34 +26,45 @@ async function processAllEmails(pool, credentials) {
         port: credentials.email.port,
         tls: true,
         tlsOptions: { rejectUnauthorized: false },
-        timeout: 30000
+        socketTimeout: 30000, // Timeout de inatividade do socket após conexão
+        connTimeout: 15000 // Timeout para estabelecer a conexão inicial (15 segundos)
     };
 
-    // --- Processamento de e-mails Growatt ---
-    logger.info('Iniciando processamento de e-mails Growatt.');
-    await emailProcessor.processEmails(
-        imapConfig,
-        pool,
-        telegramNotifier,
-        diagnosticLogger,
-        'growatt',
-        'growatt_alert', // <--- Nova tag customizada para Growatt
-        adminChatId // Passa o ID do chat do administrador
-    );
-    logger.info('Processamento de e-mails Growatt concluído.');
+    // Array de provedores para processamento em paralelo
+    const providersToProcess = [
+        { name: 'Growatt', type: 'growatt', tag: 'growatt_alert' },
+        { name: 'Solarman', type: 'solarman', tag: 'solarman_alert' }
+    ];
 
-    // --- Processamento de e-mails Solarman ---
-    logger.info('Iniciando processamento de e-mails Solarman.');
-    await emailProcessor.processEmails(
-        imapConfig,
-        pool,
-        telegramNotifier,
-        diagnosticLogger,
-        'solarman',
-        'solarman_alert', // <--- Nova tag customizada para Solarman
-        adminChatId // Passa o ID do chat do administrador
-    );
-    logger.info('Processamento de e-mails Solarman concluído.');
+    // Mapeia cada provedor para uma promessa de processamento com timeout
+    const processingTasks = providersToProcess.map(provider => {
+        // Usamos uma função assíncrona auto-executável (IIFE) para encapsular a lógica de cada provedor
+        return (async () => {
+            try {
+                const processingPromise = emailProcessor.processEmails(
+                    imapConfig,
+                    pool,
+                    telegramNotifier,
+                    diagnosticLogger,
+                    provider.type,
+                    provider.tag,
+                    adminChatId
+                );
+
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`Timeout no processamento de e-mails ${provider.name}`)), EMAIL_PROCESSING_TIMEOUT_MS)
+                );
+
+                await Promise.race([processingPromise, timeoutPromise]);
+                logger.info(`Processamento de e-mails ${provider.name} concluído com sucesso.`);
+            } catch (error) {
+                logger.error(`Falha no processamento de e-mails ${provider.name} (pode ser timeout): ${error.message}`);
+            }
+        })();
+    });
+
+    // Aguarda a conclusão de todas as tarefas de processamento (seja sucesso, falha ou timeout)
+    await Promise.all(processingTasks);
 }
 
 module.exports = {

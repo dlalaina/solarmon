@@ -31,58 +31,71 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
             return;
     }
 
+    imap = new Imap(imapConfig);
+
+    // Função auxiliar para "promisificar" uma chamada de callback
+    const imapAction = (action) => {
+        return new Promise((resolve, reject) => {
+            action(resolve, reject);
+        });
+    };
+
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // 1. Conectar ao servidor IMAP
+        await imapAction((resolve, reject) => {
+            imap.once('ready', resolve);
+            imap.once('error', reject);
+            imap.connect();
+        });
 
-        imap = new Imap(imapConfig);
+        // 2. Abrir a caixa de entrada
+        await imapAction((resolve, reject) => {
+            imap.openBox('INBOX', false, (err, box) => {
+                if (err) return reject(err);
+                resolve(box);
+            });
+        });
+        logger.info('Conectado à caixa de entrada IMAP.');
 
-        await new Promise((resolve, reject) => {
-            imap.once('ready', () => {
-                imap.openBox('INBOX', false, (err, box) => {
-                    if (err) {
-                        imap.end();
-                        return reject(err);
-                    }
-                    logger.info('Conectado à caixa de entrada IMAP.');
-                    logger.info(`Procurando e-mails para '${providerType}' com a tag customizada: '${customTag}'.`);
+        // 3. Buscar UIDs
+        const uids = await imapAction((resolve, reject) => {
+            logger.info(`Procurando e-mails para '${providerType}' com a tag customizada: '${customTag}'.`);
+            const sinceDate = new Date();
+            sinceDate.setDate(sinceDate.getDate() - 1);
+            // CORREÇÃO: A biblioteca 'imap' espera um objeto Date diretamente para o critério SINCE.
+            // Passar uma string formatada causa o erro "Search option argument must be a Date object...".
+            imap.search([['KEYWORD', customTag], ['UNKEYWORD', 'SOLARMON_PROCESSED'], ['SINCE', sinceDate]], (err, searchUids) => {
+                if (err) return reject(err);
+                resolve(searchUids);
+            });
+        });
 
-                    // Critério de busca: e-mails com a customTag, NÃO processados por nós, E recebidos nas últimas 24 horas
-                    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-                    const dateString = yesterday.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
-                    
-                    // ATUALIZADO: Adicionado filtro UNKEYWORD para 'SOLARMON_PROCESSED'
-                    imap.search([['KEYWORD', customTag], ['UNKEYWORD', 'SOLARMON_PROCESSED'], ['SINCE', dateString]], (err, uids) => {
-                        if (err) {
-                            logger.error(`Erro na busca IMAP para ${providerType}: ${err}`);
-                            imap.end();
-                            return reject(err);
-                        }
+        if (!uids || uids.length === 0) {
+            logger.info(`Nenhuma nova notificação de evento ${providerType} marcada com '${customTag}', não processada, e recebida desde o dia anterior encontrada.`);
+            return; // A função termina aqui, o 'finally' cuidará de fechar a conexão.
+        }
 
-                        if (!uids || uids.length === 0) {
-                            logger.info(`Nenhuma nova notificação de evento ${providerType} marcada com '${customTag}', não processada, e recebida nas últimas 24h encontrada.`);
-                            imap.end();
-                            return resolve();
-                        }
+        logger.info(`Encontrados ${uids.length} e-mails de evento ${providerType} (desde o dia anterior, não processados) para processar.`);
 
-                        logger.info(`Encontrados ${uids.length} e-mails de evento ${providerType} (últimas 24h, não processados) para processar.`);
-
-                        // Processar cada UID individualmente usando imap.fetch para garantir eventos 'body'
-                        const emailProcessingPromises = uids.map(uid => {
-                            return new Promise(async (resolveEmailProcessing, rejectEmailProcessing) => {
+        const emailProcessingPromises = uids.map(uid => {
+            return (async () => {
+                                let connection; // Conexão por e-mail
                                 let emailUid = uid; // O UID já é conhecido aqui da busca
                                 let emailReceivedAt;
                                 let idForFlagOperations = uid; // Usar UID para operações de flag (para addFlags)
 
-                                try { // Início do bloco try principal para todo o processamento de um e-mail individual
+                                try {
+                                    connection = await pool.getConnection();
+                                    await connection.beginTransaction();
+
                                     logger.info(`Iniciando fetch individual para UID: ${uid}.`);
                                     const f = imap.fetch([uid], { bodies: '', struct: true, attributes: ['uid', 'flags', 'date'] });
 
                                     // Promise para aguardar a mensagem e seu corpo/parsing
                                     const messageAndBodyPromise = new Promise((resolveMsgBody, rejectMsgBody) => {
                                         const timeoutId = setTimeout(() => {
-                                            rejectMsgBody(new Error(`Timeout ao processar mensagem e corpo para UID: ${uid}`));
-                                        }, 60 * 1000); // 60 segundos de timeout para toda a leitura da mensagem/corpo
+                                            rejectMsgBody(new Error(`Timeout de 45s ao processar mensagem e corpo para UID: ${uid}`));
+                                        }, 45 * 1000); // 45 segundos de timeout (menor que o timeout principal de 60s)
 
                                         f.on('message', (msg, seqno) => {
                                             logger.info(`Objeto de mensagem recebido para UID #${uid} (seqno: ${seqno}).`);
@@ -151,7 +164,7 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
 
                                     if (existingAlarmByEmailUid.length > 0) {
                                         logger.info(`E-mail com UID ${emailUid} (${providerType}) já gerou um alarme (ID: ${existingAlarmByEmailUid[0].alarm_id}). Ignorando nova criação/atualização para evitar duplicação de e-mail.`);
-                                        resolveEmailProcessing(); // Marca como processado com sucesso (deduplicado)
+                                        await connection.commit(); // Comita a transação vazia
                                         return; 
                                     }
 
@@ -173,51 +186,90 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                     if (alarmDetails) {
                                         const { inverterId, plantName, eventTimeStr, eventDescription, alarmType, severity } = alarmDetails;
 
-                                        logger.info(`Email Parsed (${providerType}, UID: ${emailUid}): Planta: ${plantName}, Inversor: ${inverterId}, Evento: "${eventDescription}"`);
-
                                         const message = `Evento da ${providerType}: "${eventDescription}" (Planta: ${plantName}, Inversor: ${inverterId})`;
                                         const eventTime = new Date(eventTimeStr);
+                                        let alarmHandled = false;
 
-                                        // Deduplicação por problema ATIVO (mesma planta, inversor, tipo, detalhes e não limpo)
-                                        const [existingActiveAlarms] = await connection.execute(
-                                            `SELECT alarm_id FROM alarms
-                                             WHERE plant_name = ? AND inverter_id = ? AND alarm_type = ? AND problem_details = ? AND cleared_at IS NULL`,
-                                            [plantName, inverterId, alarmType, eventDescription]
-                                        );
-
-                                        if (existingActiveAlarms.length === 0) {
-                                            const [insertResult] = await connection.execute(
-                                                `INSERT INTO alarms (plant_name, inverter_id, alarm_type, problem_details, alarm_severity, message, triggered_at, email_uid)
-                                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                                                [plantName, inverterId, alarmType, eventDescription, severity, message, eventTime, emailUid]
-                                            );
-                                            const currentAlarmId = insertResult.insertId;                                            
-                                            logger.info(`NOVO ALARME REGISTRADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
-                                            
-                                            await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME (E-MAIL ${providerType.toUpperCase()})</b> 🚨\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nEvento: <b>${eventDescription}</b>`, adminChatId);
-
-                                            const [plantInfoRows] = await connection.execute(
-                                                `SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`,
-                                                [plantName]
+                                        // --- NOVA REGRA: Se for um evento de e-mail Growatt, verificar se já existe um alarme INVERTER-OFFLINE ---
+                                        if (alarmType === 'GROWATT-EMAIL-EVENT') {
+                                            const [existingOfflineAlarm] = await connection.execute(
+                                                `SELECT alarm_id, problem_details FROM alarms
+                                                 WHERE plant_name = ? AND inverter_id = ? AND alarm_type = 'INVERTER-OFFLINE' AND cleared_at IS NULL`,
+                                                [plantName, inverterId]
                                             );
 
-                                            if (plantInfoRows.length > 0 && plantInfoRows[0].owner_chat_id) {
-                                                const ownerChatId = plantInfoRows[0].owner_chat_id;
-                                                if (ownerChatId && String(ownerChatId) !== String(adminChatId)) { 
-                                                    const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${eventDescription}`;
-                                                    await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
-                                                    logger.info(`Notificação de NOVO ALARME (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);
-                                                } else if (String(ownerChatId) === String(adminChatId)) {
-                                                    logger.info(`Proprietário da planta ${plantName} é o mesmo que o ADMIN, notificação de alarme enviada apenas uma vez.`);
+                                            if (existingOfflineAlarm.length > 0) {
+                                                const alarmToUpdate = existingOfflineAlarm[0];
+                                                const newProblemDetails = eventDescription;
+                                                const newMessage = `Alarme de Inversor Offline atualizado com evento de e-mail: "${eventDescription}"`;
+
+                                                logger.info(`Alarme 'INVERTER-OFFLINE' (ID: ${alarmToUpdate.alarm_id}) encontrado para ${plantName} - ${inverterId}. Atualizando com detalhes do e-mail: "${newProblemDetails}".`);
+
+                                                await connection.execute(
+                                                    `UPDATE alarms SET problem_details = ?, message = ?, triggered_at = ?, email_uid = ? WHERE alarm_id = ?`,
+                                                    [newProblemDetails, newMessage, eventTime, emailUid, alarmToUpdate.alarm_id]
+                                                );
+
+                                                await telegramNotifier.sendTelegramMessage(`🔄 <b>ALARME ATUALIZADO (E-MAIL)</b> 🔄\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nStatus Anterior: Inversor Offline\nNovo Evento: <b>${newProblemDetails}</b>`, adminChatId);
+
+                                                const [plantInfoRows] = await connection.execute(`SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`, [plantName]);
+                                                if (plantInfoRows.length > 0 && plantInfoRows[0].owner_chat_id) {
+                                                    const ownerChatId = plantInfoRows[0].owner_chat_id;
+                                                    if (ownerChatId && String(ownerChatId) !== String(adminChatId)) {
+                                                        const ownerUpdateMessage = `🔄 <b>ALARME ATUALIZADO</b> 🔄\nSua usina <b>${plantName}</b> teve um alarme atualizado:\nInversor: <b>${inverterId}</b>\nNovo Evento: ${newProblemDetails}`;
+                                                        await telegramNotifier.sendTelegramMessage(ownerUpdateMessage, ownerChatId);
+                                                        logger.info(`Notificação de ALARME ATUALIZADO (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);
+                                                    }
                                                 }
+                                                alarmHandled = true;
                                             }
-                                        } else {
-                                            const currentAlarmId = existingActiveAlarms[0].alarm_id;
-                                            await connection.execute(
-                                                `UPDATE alarms SET triggered_at = ?, email_uid = ? WHERE alarm_id = ?`,
-                                                [eventTime, emailUid, currentAlarmId]
+                                        }
+
+                                        // Se o alarme não foi atualizado pela nova regra, seguir o fluxo normal
+                                        if (!alarmHandled) {
+                                            logger.info(`Email Parsed (${providerType}, UID: ${emailUid}): Planta: ${plantName}, Inversor: ${inverterId}, Evento: "${eventDescription}"`);
+
+                                            // Deduplicação por problema ATIVO (mesma planta, inversor, tipo, detalhes e não limpo)
+                                            const [existingActiveAlarms] = await connection.execute(
+                                                `SELECT alarm_id FROM alarms
+                                                 WHERE plant_name = ? AND inverter_id = ? AND alarm_type = ? AND problem_details = ? AND cleared_at IS NULL`,
+                                                [plantName, inverterId, alarmType, eventDescription]
                                             );
-                                            logger.info(`ALARME ATIVO ATUALIZADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (Atualizado com E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
+
+                                            if (existingActiveAlarms.length === 0) {
+                                                const [insertResult] = await connection.execute(
+                                                    `INSERT INTO alarms (plant_name, inverter_id, alarm_type, problem_details, alarm_severity, message, triggered_at, email_uid)
+                                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                                                    [plantName, inverterId, alarmType, eventDescription, severity, message, eventTime, emailUid]
+                                                );
+                                                const currentAlarmId = insertResult.insertId;                                            
+                                                logger.info(`NOVO ALARME REGISTRADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
+                                                
+                                                await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME (E-MAIL ${providerType.toUpperCase()})</b> 🚨\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nEvento: <b>${eventDescription}</b>`, adminChatId);
+
+                                                const [plantInfoRows] = await connection.execute(
+                                                    `SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`,
+                                                    [plantName]
+                                                );
+
+                                                if (plantInfoRows.length > 0 && plantInfoRows[0].owner_chat_id) {
+                                                    const ownerChatId = plantInfoRows[0].owner_chat_id;
+                                                    if (ownerChatId && String(ownerChatId) !== String(adminChatId)) { 
+                                                        const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${eventDescription}`;
+                                                        await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
+                                                        logger.info(`Notificação de NOVO ALARME (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);
+                                                    } else if (String(ownerChatId) === String(adminChatId)) {
+                                                        logger.info(`Proprietário da planta ${plantName} é o mesmo que o ADMIN, notificação de alarme enviada apenas uma vez.`);
+                                                    }
+                                                }
+                                            } else {
+                                                const currentAlarmId = existingActiveAlarms[0].alarm_id;
+                                                await connection.execute(
+                                                    `UPDATE alarms SET triggered_at = ?, email_uid = ? WHERE alarm_id = ?`,
+                                                    [eventTime, emailUid, currentAlarmId]
+                                                );
+                                                logger.info(`ALARME ATIVO ATUALIZADO (${providerType}): ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} - "${eventDescription}" (Atualizado com E-mail UID: ${emailUid}, Alarm ID: ${currentAlarmId})`);
+                                            }
                                         }
 
                                         if (providerType === 'growatt') {
@@ -231,70 +283,56 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                     } else {
                                         logger.warn(`WARN: AlarmDetails são nulos para e-mail UID: ${emailUid}. O e-mail pode não ter um formato esperado para alarme.`);
                                     }
-                                    resolveEmailProcessing(); // Resolve a promessa de processamento individual do e-mail
-                                } catch (mainError) { // Catch principal para erros em qualquer etapa do processMessage
+
+                                    await connection.commit();
+                                    logger.info(`Transação MySQL para e-mail UID ${emailUid} comitada com sucesso.`);
+
+                                } catch (mainError) {
                                     logger.error(`ERRO PRINCIPAL no processamento do e-mail UID: ${emailUid}: ${mainError.message}`);
-                                    rejectEmailProcessing(mainError); // Rejeita a promessa de processamento individual
+                                    if (connection) {
+                                        await connection.rollback();
+                                        logger.info(`Transação MySQL para e-mail UID ${emailUid} revertida devido a erro.`);
+                                    }
+                                    throw mainError; // Re-throw para ser pego pelo Promise.allSettled
                                 } finally { // Bloco finally principal para marcar o e-mail como processado
-                                    // Remove a customTag original (se o processamento foi tentado) - REMOVIDO: Não vamos mais tentar remover a customTag aqui
-                                    // Adiciona a flag \Seen (marcar como lido) E nossa flag 'SOLARMON_PROCESSED'
+                                    if (connection) {
+                                        connection.release();
+                                    }
+                                    // Adiciona a flag \Seen e 'SOLARMON_PROCESSED'. Envolvemos em uma Promise
+                                    // para forçar o 'await' e garantir que a operação termine antes de prosseguir.
                                     if (idForFlagOperations) { 
-                                        imap.addFlags(idForFlagOperations, ['\\Seen', 'SOLARMON_PROCESSED'], (err) => { // ATUALIZADO: Adicionando 'SOLARMON_PROCESSED'
-                                            if (err) logger.error(`Erro ao adicionar flags ('\\Seen', 'SOLARMON_PROCESSED') ao e-mail ${idForFlagOperations} (${providerType}, final do processamento): ${err.message}`);
-                                            else logger.info(`E-mail ${idForFlagOperations} para ${providerType} marcado como lido e com flag 'SOLARMON_PROCESSED'.`); // Log atualizado
+                                        await new Promise((resolveFlag, rejectFlag) => {
+                                            imap.addFlags(idForFlagOperations, ['\\Seen', 'SOLARMON_PROCESSED'], (err) => {
+                                                if (err) {
+                                                    // Logamos o erro mas não rejeitamos a promessa para não parar todo o fluxo
+                                                    logger.error(`Erro ao adicionar flags ('\\Seen', 'SOLARMON_PROCESSED') ao e-mail ${idForFlagOperations} (${providerType}): ${err.message}`);
+                                                } else {
+                                                    logger.info(`E-mail ${idForFlagOperations} para ${providerType} marcado como lido e com flag 'SOLARMON_PROCESSED'.`);
+                                                }
+                                                resolveFlag(); // Resolve a promessa para que o await possa continuar.
+                                            });
                                         });
                                     } else {
                                         logger.warn(`WARN: Não foi possível realizar operações de flag para e-mail UID #${uid} devido à falta de idForFlagOperations.`);
                                     }
                                 }
-                            });
-                        });
-
-                        // Agora, aguardamos todas as promessas de processamento individual
-                        Promise.allSettled(emailProcessingPromises) // Usamos allSettled para que uma falha não cancele todas as outras
-                            .then((results) => {
-                                results.forEach((result, index) => {
-                                    if (result.status === 'rejected') {                                        
-                                        logger.error(`Processamento do e-mail UID ${uids[index]} falhou: ${result.reason}`);
-                                    }
-                                });
-                                imap.end();
-                                resolve();
-                            })
-                            .catch(allPromisesError => {
-                                logger.error(`Um erro inesperado ocorreu durante a conclusão dos processamentos de e-mail: ${allPromisesError}`);
-                                imap.end();
-                                reject(allPromisesError);
-                            });
-                    });
-                });
-            });
-
-            imap.once('error', (err) => {
-                logger.error(`Erro de conexão IMAP para ${providerType}: ${err}`);
-                imap.end();
-                reject(err);
-            });
-
-            imap.once('end', async () => {
-                logger.info(`Conexão IMAP encerrada para ${providerType}.`);
-            });
-
-            imap.connect();
+                            })();
         });
 
-        await connection.commit();
-        logger.info(`Transação MySQL comitada com sucesso para ${providerType}.`);
+        const results = await Promise.allSettled(emailProcessingPromises);
+        results.forEach((result, index) => {
+            if (result.status === 'rejected') {
+                logger.error(`Processamento do e-mail UID ${uids[index]} falhou: ${result.reason}`);
+            }
+        });
 
-    } catch (scriptError) {
-        if (connection) {
-            await connection.rollback();
-            logger.info(`Transação MySQL revertida devido a erro para ${providerType}.`);
-        }
-        throw scriptError;
+    } catch (error) {
+        logger.error(`Erro no processamento de e-mails para ${providerType}: ${error.message}`);
+        throw error; // Relança o erro para que o Promise.race no chamador possa capturá-lo.
     } finally {
-        if (connection) {
-            connection.release();
+        if (imap) {
+            logger.info(`Encerrando conexão IMAP para ${providerType}.`);
+            imap.end();
         }
     }
 }

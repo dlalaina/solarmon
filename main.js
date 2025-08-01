@@ -116,10 +116,11 @@ async function manageLogFiles() {
 async function manageRawDataFiles() {
     logger.info('Iniciando gerenciamento de arquivos de dados brutos...');
     try {
+        const retentionDays = credentials.retention?.rawDataDays || 30; // Usa credenciais ou padrão
         const files = await fs.readdir(raw_data_dir);
         const now = new Date();
-        const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
-        now.setDate(now.getDate() + 30); // Reset 'now' to the original date
+        const retentionDate = new Date();
+        retentionDate.setDate(now.getDate() - retentionDays);
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayDateString = `${yesterday.getFullYear()}${String(yesterday.getMonth() + 1).padStart(2, '0')}${String(yesterday.getDate()).padStart(2, '0')}`;
@@ -129,7 +130,7 @@ async function manageRawDataFiles() {
             const fileStats = await fs.stat(filePath);
 
             // 1. Deletar arquivos com mais de 30 dias
-            if (fileStats.mtime < thirtyDaysAgo) {
+            if (fileStats.mtime < retentionDate) {
                 await fs.unlink(filePath);
                 logger.info(`Arquivo antigo deletado: ${file}`);
                 continue; // Pula para o próximo arquivo
@@ -172,7 +173,7 @@ async function pruneOldSolarData(dbPool) {
     let connection;
     try {
         connection = await dbPool.getConnection();
-        const retentionDays = 90; // Período de retenção de 90 dias
+        const retentionDays = credentials.retention?.solarDataDays || 90; // Usa credenciais ou padrão
         const [result] = await connection.execute(
             `DELETE FROM solar_data WHERE last_update_time <= NOW() - INTERVAL ? DAY`,
             [retentionDays]

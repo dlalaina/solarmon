@@ -21,7 +21,7 @@ function safeParseFloat(value) {
  */
 function mapGrowattData(d) {
     const sourceData = {
-        gen_today: d.deviceData.eToday,
+        gen_today: d.historyLast?.eacToday,
         gen_total: d.deviceData.eTotal,
         epv1_today: d.historyLast?.epv1Today,
         epv2_today: d.historyLast?.epv2Today,
@@ -52,6 +52,7 @@ function mapGrowattData(d) {
         fault_code2: d.historyLast?.faultCode2,
         fault_code1: d.historyLast?.faultCode1,
         fault_value: d.historyLast?.faultValue,
+        fault_type: d.historyLast?.faultType,
     };
     const lastUpdateTimeValue = d.deviceData.lastUpdateTime ? moment(d.deviceData.lastUpdateTime).format('YYYY-MM-DD HH:mm:ss') : null;
     return { sourceData, lastUpdateTimeValue };
@@ -196,13 +197,6 @@ async function insertDataIntoMySQL(pool, data) {
         const plantConfigKey = `${plantName}_${deviceId}`;
         const currentPlantConfig = plantConfigsMap.get(plantConfigKey);
 
-        // Pula a inserção para inversores Solplanet que estão offline/aguardando.
-        // A condição agora verifica status E state.
-        if (currentPlantConfig && currentPlantConfig.apiType === 'Solplanet' && d.result?.status === 0 && d.result?.state === 'off-line') {
-            logger.info(`Ignorando inversor Solplanet em espera: ${plantName} - ${deviceId} (status: 0, state: off-line)`);
-            continue; // Pula para o próximo inversor
-        }
-
         if (!currentPlantConfig) {
           logger.warn(`Configuração da planta não encontrada para Inversor: ${deviceId} na Planta: ${plantName}. Ignorando inserção de dados PV.`);
           continue;
@@ -267,6 +261,7 @@ async function insertDataIntoMySQL(pool, data) {
           fault_code2: sourceData.fault_code2 != null ? parseInt(sourceData.fault_code2) : null,
           fault_code1: sourceData.fault_code1 != null ? parseInt(sourceData.fault_code1) : null,
           fault_value: sourceData.fault_value != null ? parseInt(sourceData.fault_value) : null,
+          fault_type: sourceData.fault_type != null ? parseInt(sourceData.fault_type) : null,
           update_status: sourceData.update_status != null ? parseInt(sourceData.update_status) : null,
           
           gen_today: sourceData.gen_today != null ? parseFloat(sourceData.gen_today) : null,
@@ -303,6 +298,13 @@ async function insertDataIntoMySQL(pool, data) {
           frequency_ac: sourceData.frequency_ac != null ? parseFloat(sourceData.frequency_ac) : null,
           output_power: sourceData.output_power != null ? parseFloat(sourceData.output_power) : null,
         };
+
+        // Pula a inserção para inversores Solplanet que estão em espera (status 0).
+        // Esta verificação é feita após a montagem do rowData para maior clareza.
+        if (currentPlantConfig.apiType === 'Solplanet' && rowData.status === 0) {
+            logger.info(`Ignorando inversor Solplanet em espera: ${plantName} - ${deviceId} (status: 0)`);
+            continue; // Pula para o próximo inversor
+        }
 
         // Populate ipvX, vpvX and currentStringX dynamically based on activeStrings and api_type
         for (const stringNum of activeStrings) {
