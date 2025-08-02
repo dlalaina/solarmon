@@ -33,7 +33,7 @@ function mapGrowattData(d) {
         epv8_today: d.historyLast?.epv8Today,
         bdc_status: d.deviceData.bdcStatus,
         pto_status: d.deviceData.ptoStatus,
-        status: d.deviceData.status,
+        status: d.historyLast?.status,
         temperature: d.historyLast?.temperature,
         temperature2: d.historyLast?.temperature2,
         temperature3: d.historyLast?.temperature3,
