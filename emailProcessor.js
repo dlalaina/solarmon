@@ -13,8 +13,9 @@ const logger = require('./logger')('email');
  * @param {string} providerType - 'growatt' ou 'solarman' (ou outros).
  * @param {string} customTag - The custom IMAP tag to search for (e.g., 'growatt_alert', 'solarman_alert').
  * @param {string} adminChatId - O ID do chat do administrador para deduplicação de notificações de proprietários.
+ * @param {boolean} notifyOwners - Flag para habilitar/desabilitar notificação para proprietários.
  */
-async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogger, providerType, customTag, adminChatId) {
+async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogger, providerType, customTag, adminChatId, notifyOwners) {
     let connection;
     let imap;
 
@@ -215,7 +216,7 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
                                                 const [plantInfoRows] = await connection.execute(`SELECT owner_chat_id FROM plant_info WHERE plant_name = ?`, [plantName]);
                                                 if (plantInfoRows.length > 0 && plantInfoRows[0].owner_chat_id) {
                                                     const ownerChatId = plantInfoRows[0].owner_chat_id;
-                                                    if (ownerChatId && String(ownerChatId) !== String(adminChatId)) {
+                                                    if (notifyOwners && ownerChatId && String(ownerChatId) !== String(adminChatId)) {
                                                         const ownerUpdateMessage = `🔄 <b>ALARME ATUALIZADO</b> 🔄\nSua usina <b>${plantName}</b> teve um alarme atualizado:\nInversor: <b>${inverterId}</b>\nNovo Evento: ${newProblemDetails}`;
                                                         await telegramNotifier.sendTelegramMessage(ownerUpdateMessage, ownerChatId);
                                                         logger.info(`Notificação de ALARME ATUALIZADO (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);
@@ -254,7 +255,7 @@ async function processEmails(imapConfig, pool, telegramNotifier, diagnosticLogge
 
                                                 if (plantInfoRows.length > 0 && plantInfoRows[0].owner_chat_id) {
                                                     const ownerChatId = plantInfoRows[0].owner_chat_id;
-                                                    if (ownerChatId && String(ownerChatId) !== String(adminChatId)) { 
+                                                    if (notifyOwners && ownerChatId && String(ownerChatId) !== String(adminChatId)) { 
                                                         const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${eventDescription}`;
                                                         await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
                                                         logger.info(`Notificação de NOVO ALARME (E-MAIL) enviada para o proprietário da Planta: ${plantName}`);

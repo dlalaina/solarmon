@@ -628,7 +628,7 @@ async function retrieveAndProcessData() {
     try {
         const emailStartTime = Date.now();
         logger.info('Iniciando processamento de e-mails de alerta...');
-        await processAllEmails(pool, credentials);
+        await processAllEmails(pool, credentials, credentials.telegram.notifyPlantOwners);
         const emailDuration = ((Date.now() - emailStartTime) / 1000).toFixed(3);
         logger.info(`Processamento de e-mails de alerta concluído em ${emailDuration}s.`);
     } catch (emailError) {
@@ -637,7 +637,8 @@ async function retrieveAndProcessData() {
 
     // --- Gerenciamento de Alarmes ---
     const alarmStartTime = Date.now();
-    await checkAndManageAlarms(pool, credentials.telegram.chatId);
+    // Passa a nova configuração para o gerenciador de alarmes
+    await checkAndManageAlarms(pool, credentials.telegram.chatId, credentials.telegram.notifyPlantOwners);
     const alarmDuration = ((Date.now() - alarmStartTime) / 1000).toFixed(3);
     logger.info(`Verificação e gerenciamento de alarmes concluído em ${alarmDuration}s.`);
 

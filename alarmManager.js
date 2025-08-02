@@ -60,9 +60,10 @@ async function getConsecutiveCountsFromDb(connection) {
  * @param {Set<string>} stillActiveDetectedKeys - Set para rastrear alarmes ainda ativos.
  * @param {object} connection - A conexão MySQL.
  * @param {string} adminChatId - O ID do chat do administrador.
+ * @param {boolean} notifyOwners - Flag para habilitar/desabilitar notificação para proprietários.
  * @param {Date|null} growattGracePeriodUntil - Timestamp de quando o período de carência da Growatt termina.
  */
-async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId, growattGracePeriodUntil) {
+async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId, notifyOwners, growattGracePeriodUntil) {
     for (const detection of dayIpvAlarms) {
         const plantName = detection.plant_name;
         const inverterId = detection.inverter_id;
@@ -165,7 +166,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                         // Enviar para o ADMIN
                         await telegramNotifier.sendTelegramMessage(`🔴 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔴\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
                         // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
-                        if (ownerChatId && ownerChatId !== adminChatId) {
+                        if (notifyOwners && ownerChatId && ownerChatId !== adminChatId) {
                             const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${telegramMessageDetails}\nProdução da String ${stringNum}: ${stringCurrentValue.toFixed(2)}A`;
                             await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
                             logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
@@ -311,7 +312,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                         // Enviar para o ADMIN
                         await telegramNotifier.sendTelegramMessage(`🔥 <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> 🔥\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
                         // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e ownerChatId existir)
-                        if (ownerChatId && ownerChatId !== adminChatId) {
+                        if (notifyOwners && ownerChatId && ownerChatId !== adminChatId) {
                             const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsTwo}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
                             await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
                             logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
@@ -360,7 +361,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                             logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${problemDetailsOne})`);
                             // Enviar para o ADMIN
                             await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                            if (ownerChatId && ownerChatId !== adminChatId) {
+                            if (notifyOwners && ownerChatId && ownerChatId !== adminChatId) {
                                 const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${problemDetailsOne}\nProdução do MPPT ${stringNum}: ${currentStringValue.toFixed(2)}A`;
                                 await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
                                 logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
@@ -426,7 +427,7 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
                         );
                         logger.info(`NOVO ALARME: ${alarmType} para Planta: ${plantName}, Inversor: ${inverterId} (${halfWorkingProblemDetails})`);
                         await telegramNotifier.sendTelegramMessage(`⚠️ <b>NOVO ALARME: ${alarmType.replace(/-/g, ' ')}</b> ⚠️\nPlanta: <b>${plantName}</b>\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A\nPico do Inversor: ${greatestCurrentString.toFixed(2)}A`);
-                        if (ownerChatId && ownerChatId !== adminChatId) {
+                        if (notifyOwners && ownerChatId && ownerChatId !== adminChatId) {
                             const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plantName}</b> está com um alerta:\nInversor: <b>${inverterId}</b>\nDetalhes: ${halfWorkingProblemDetails}\nProdução da String ${stringNum}: ${currentStringValue.toFixed(2)}A`;
                             await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, ownerChatId);
                             logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plantName}.`);
@@ -466,9 +467,10 @@ async function processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, ac
  * @param {Map<string, object>} activeAlarmsMap - Mapa de alarmes ativos.
  * @param {Set<string>} stillActiveDetectedKeys - Set para rastrear alarmes ainda ativos.
  * @param {string} adminChatId - O ID do chat do administrador.
+ * @param {boolean} notifyOwners - Flag para habilitar/desabilitar notificação para proprietários.
  * @param {Date|null} growattGracePeriodUntil - Timestamp de quando o período de carência da Growatt termina.
  */
-async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, growattGracePeriodUntil) {
+async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, notifyOwners, growattGracePeriodUntil) {
     const [potentialOfflineInverters] = await connection.execute(`
         SELECT
             pc.plant_name,
@@ -588,7 +590,7 @@ async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillAct
                     );
                     logger.info(`NOVO ALARME: ${newAlarmType} para Planta: ${plant_name}, Inversor: ${inverter_id} (${problemDetails})`);
                     await telegramNotifier.sendTelegramMessage(`🚨 <b>NOVO ALARME: ${newAlarmType.replace(/-/g, ' ')}</b> 🚨\nPlanta: <b>${plant_name}</b>\nInversor: <b>${inverter_id}</b>\nDetalhes: ${problemDetails}\n<i>${message}</i>`);
-                    if (owner_chat_id && owner_chat_id !== adminChatId) {
+                    if (notifyOwners && owner_chat_id && owner_chat_id !== adminChatId) {
                         const ownerAlarmMessage = `🚨 <b>NOVO ALARME</b> 🚨\nSua usina <b>${plant_name}</b> está com um alerta:\nInversor: <b>${inverter_id}</b>\nDetalhes: ${problemDetails}\n<i>${message}</i>`;
                         await telegramNotifier.sendTelegramMessage(ownerAlarmMessage, owner_chat_id);
                         logger.info(`Notificação de ALARME enviada para o proprietário da Planta: ${plant_name}.`);
@@ -607,9 +609,10 @@ async function detectInverterOfflineAlarms(connection, activeAlarmsMap, stillAct
  * @param {Set<string>} stillActiveDetectedKeys - Set para rastrear alarmes ainda ativos.
  * @param {Map<string, number>} consecutiveCountsMap - Mapa de contagens consecutivas.
  * @param {object} connection - A conexão MySQL.
- * @param {string} adminChatId - O ID do chat do administrador.
+ * @param {string} adminChatId - O ID do chat do administrador para deduplicação.
+ * @param {boolean} notifyOwners - Flag para habilitar/desabilitar notificação para proprietários.
  */
-async function clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, consecutiveCountsMap, connection, adminChatId) {
+async function clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, consecutiveCountsMap, connection, adminChatId, notifyOwners) {
     // Otimização: Buscar todos os owner_chat_id de uma vez para evitar queries em loop.
     const [plantInfoRows] = await connection.execute(
         `SELECT plant_name, owner_chat_id FROM plant_info`
@@ -648,7 +651,7 @@ async function clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, con
             // Enviar para o PROPRIETÁRIO (se diferente do ADMIN e resolvedOwnerChatId existir)
             // Otimizado: Usa o mapa pré-carregado em vez de uma nova query.
             const resolvedOwnerChatId = plantOwnerMap.get(alarm.plant_name);
-            if (resolvedOwnerChatId && resolvedOwnerChatId !== adminChatId) {
+            if (notifyOwners && resolvedOwnerChatId && resolvedOwnerChatId !== adminChatId) {
                 const ownerResolvedMessage = `✅ <b>ALARME RESOLVIDO</b> ✅\nSua usina <b>${alarm.plant_name}</b> teve um alarme resolvido:\nInversor: <b>${alarm.inverter_id}</b>\nDetalhes: ${alarm.problem_details || 'N/A'}`;
                 await telegramNotifier.sendTelegramMessage(ownerResolvedMessage, resolvedOwnerChatId);
                 logger.info(`Notificação de ALARME RESOLVIDO enviada para o proprietário da Planta: ${alarm.plant_name}.`);
@@ -704,9 +707,10 @@ async function persistConsecutiveCounts(consecutiveCountsMap, connection) {
  * Checks for and manages alarm conditions based on data in solar_data and plant_config.
  * This function acts as an orchestrator, delegating specific alarm logic to helper functions.
  * @param {object} pool - The MySQL connection pool.
- * @param {string} adminChatId - O ID do chat do administrador para deduplicação de notificações de proprietários.
+ * @param {string} adminChatId - O ID do chat do administrador para deduplicação.
+ * @param {boolean} notifyOwners - Flag para habilitar/desabilitar notificação para proprietários.
  */
-async function checkAndManageAlarms(pool, adminChatId) {
+async function checkAndManageAlarms(pool, adminChatId, notifyOwners) {
     let connection;
     try {
         connection = await pool.getConnection();
@@ -776,13 +780,13 @@ async function checkAndManageAlarms(pool, adminChatId) {
         });
 
         // 3. Processar alarmes de string e MPPT
-        await processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId, growattGracePeriodUntil);
+        await processStringAndMpptAlarms(dayIpvAlarms, consecutiveCountsMap, activeAlarmsMap, stillActiveDetectedKeys, connection, adminChatId, notifyOwners, growattGracePeriodUntil);
 
         // 4. Detectar e processar alarmes de inversor offline
-        await detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, growattGracePeriodUntil);
+        await detectInverterOfflineAlarms(connection, activeAlarmsMap, stillActiveDetectedKeys, adminChatId, notifyOwners, growattGracePeriodUntil);
 
         // 5. Limpar alarmes que não são mais detectados
-        await clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, consecutiveCountsMap, connection, adminChatId);
+        await clearResolvedAlarms(activeAlarmsMap, stillActiveDetectedKeys, consecutiveCountsMap, connection, adminChatId, notifyOwners);
 
         // 6. Persistir contagens consecutivas atualizadas
         await persistConsecutiveCounts(consecutiveCountsMap, connection);

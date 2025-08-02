@@ -13,8 +13,9 @@ const EMAIL_PROCESSING_TIMEOUT_MS = 60000; // 60 segundos
  * Processa e-mails de alerta da Growatt e Solarman.
  * @param {mysql.Pool} pool - O pool de conexões MySQL já inicializado.
  * @param {object} credentials - O objeto de credenciais carregado.
+ * @param {boolean} notifyOwners - Flag para habilitar/desabilitar notificação para proprietários.
  */
-async function processAllEmails(pool, credentials) {
+async function processAllEmails(pool, credentials, notifyOwners) {
     logger.info(`Iniciando processamento de todos os e-mails em PARALELO com um timeout de ${EMAIL_PROCESSING_TIMEOUT_MS / 1000}s por provedor.`);
     const adminChatId = credentials.telegram.chatId;
 
@@ -48,7 +49,8 @@ async function processAllEmails(pool, credentials) {
                     diagnosticLogger,
                     provider.type,
                     provider.tag,
-                    adminChatId
+                    adminChatId,
+                    notifyOwners // Passa a flag para a função de processamento
                 );
 
                 const timeoutPromise = new Promise((_, reject) =>
