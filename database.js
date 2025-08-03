@@ -113,15 +113,18 @@ function mapSolarmanData(d) {
  */
 function mapSolplanetData(d) {
     const result = d.result || {};
+    const etotalMwh = safeParseFloat(result.etotal?.[0]);
+    const pacKw = safeParseFloat(Array.isArray(result.pac) ? result.pac[0] : result.pac);
+
     const sourceData = {
         gen_today: safeParseFloat(result.etoday?.[0]),
-        gen_total: safeParseFloat(result.etotal?.[0]) * 1000, // Convert MWh to kWh
+        gen_total: etotalMwh !== null ? etotalMwh * 1000 : null, // Convert MWh to kWh, preserving null
         voltage_ac1: safeParseFloat(result.vac?.[0]),
         voltage_ac2: safeParseFloat(result.vac?.[1]),
         voltage_ac3: safeParseFloat(result.vac?.[2]),
         nominal_power: safeParseFloat(Array.isArray(result.maxoutputpower) ? result.maxoutputpower[0] : result.maxoutputpower), // Already in W
         frequency_ac: safeParseFloat(result.fac?.[0]),
-        output_power: safeParseFloat(Array.isArray(result.pac) ? result.pac[0] : result.pac) * 1000, // Convert kW to W
+        output_power: pacKw !== null ? pacKw * 1000 : null, // Convert kW to W, preserving null
         status: result.status, // Será mapeado para -1, 1, etc., posteriormente
         device_model: result.devtypename || null,
         temperature2: safeParseFloat(result.temperature?.[0]),
@@ -403,10 +406,10 @@ async function insertDataIntoMySQL(pool, data) {
             // Growatt fornece o total do mês diretamente (eMonth)
             currentMonthGenKwh = d.deviceData?.eMonth != null ? parseFloat(d.deviceData.eMonth) : null;
         } else if (currentPlantConfig.apiType === 'Solplanet') {
-            // Solplanet fornece o total do mês (emonth) em MWh.
+            // Solplanet fornece o total do mês (emonth) em kWh.
             // A API pode retornar o valor com vírgula (ex: "5,208"). A conversão abaixo trata ambos os casos.
             const emonthValue = d.result?.emonth; // CORREÇÃO: Acessa a string diretamente, sem o [0]
-            currentMonthGenKwh = emonthValue != null ? safeParseFloat(emonthValue) * 1000 : null; // Convert MWh to kWh
+            currentMonthGenKwh = emonthValue != null ? safeParseFloat(emonthValue) : null; // Valor já vem em kWh
         } else if (currentPlantConfig.apiType === 'Solarman') {
             // Solarman não fornece o total do mês, então calculamos a partir dos dados diários em solar_data
             const [rows] = await connection.execute(
