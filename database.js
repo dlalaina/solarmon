@@ -20,8 +20,22 @@ function safeParseFloat(value) {
  * @returns {{sourceData: object, lastUpdateTimeValue: string|null}}
  */
 function mapGrowattData(d) {
+    const lastUpdateTime = d.deviceData.lastUpdateTime;
+    let genToday = d.historyLast?.eacToday;
+
+    // BUGFIX: A API da Growatt pode retornar o `eacToday` do dia anterior
+    // nos primeiros minutos após a meia-noite.
+    // Se a atualização ocorrer na primeira hora do dia (00:00-00:59),
+    // forçamos a geração do dia para 0 para garantir que o dia comece zerado.
+    if (lastUpdateTime) {
+        const updateMoment = moment(lastUpdateTime);
+        // .hour() retorna de 0 a 23.
+        if (updateMoment.hour() === 0) {
+            genToday = 0.0;
+        }
+    }
     const sourceData = {
-        gen_today: d.historyLast?.eacToday,
+        gen_today: genToday,
         gen_total: d.deviceData.eTotal,
         epv1_today: d.historyLast?.epv1Today,
         epv2_today: d.historyLast?.epv2Today,
