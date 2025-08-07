@@ -420,10 +420,11 @@ async function insertDataIntoMySQL(pool, data) {
             // Growatt fornece o total do mês diretamente (eMonth)
             currentMonthGenKwh = d.deviceData?.eMonth != null ? parseFloat(d.deviceData.eMonth) : null;
         } else if (currentPlantConfig.apiType === 'Solplanet') {
-            // Solplanet fornece o total do mês (emonth) em kWh.
-            // A API pode retornar o valor com vírgula (ex: "5,208"). A conversão abaixo trata ambos os casos.
+            // Solplanet fornece o total do mês (emonth) em MWh.
+            // Precisamos converter para kWh, assim como fazemos com 'etotal'.
             const emonthValue = d.result?.emonth; // CORREÇÃO: Acessa a string diretamente, sem o [0]
-            currentMonthGenKwh = emonthValue != null ? safeParseFloat(emonthValue) : null; // Valor já vem em kWh
+            const emonthMwh = emonthValue != null ? safeParseFloat(emonthValue) : null;
+            currentMonthGenKwh = emonthMwh !== null ? emonthMwh * 1000 : null; // Converte MWh para kWh
         } else if (currentPlantConfig.apiType === 'Solarman') {
             // Solarman não fornece o total do mês, então calculamos a partir dos dados diários em solar_data
             const [rows] = await connection.execute(
